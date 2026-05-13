@@ -1,7 +1,7 @@
 import os
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, make_url
 from sqlmodel import Session, SQLModel
 
@@ -21,33 +21,22 @@ def get_database_url() -> str:
     return database_url
 
 
-def _create_server_engine(database_url: str) -> Engine:
-    # 创建一个不指定具体数据库名的 MySQL 连接
-    url = make_url(database_url)
-    server_url = url.set(database="")
-    return create_engine(server_url, pool_pre_ping=True)
-
-
-def _ensure_mysql_database_exists(database_url: str) -> None:
+def _validate_postgres_url(database_url: str) -> None:
     url = make_url(database_url)
 
-    if not url.drivername.startswith("mysql") or not url.database:
-        return
-
-    database_name = url.database.replace("`", "``")
-
-    with _create_server_engine(database_url).begin() as connection:
-        connection.execute(
-            text(
-                f"CREATE DATABASE IF NOT EXISTS `{database_name}` "
-                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
+    if not url.drivername.startswith("postgresql"):
+        raise RuntimeError(
+            "DATABASE_URL must use PostgreSQL, for example "
+            "postgresql+psycopg://user:password@host:5432/database."
         )
+
+    if not url.database:
+        raise RuntimeError("DATABASE_URL must include a PostgreSQL database name.")
 
 
 def create_db_engine() -> Engine:
     database_url = get_database_url()
-    _ensure_mysql_database_exists(database_url)
+    _validate_postgres_url(database_url)
     return create_engine(database_url, pool_pre_ping=True)
 
 
