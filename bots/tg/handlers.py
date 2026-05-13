@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import (
     ContextTypes,
 )
-
+from pathlib import Path
 from agent.router import route_message
 from utils.logger import logger
 
@@ -74,6 +74,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     result = route_message(text)
     await update.message.reply_text(result)
 
+
+async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # 处理图片
+    message = update.message
+    photo = message.photo[-1] # -1 是最大尺寸
+    tg_file = await photo.get_file()
+    user_id = message.from_user.id
+    folder_path = Path("temp/saved_pictures/tg") / str(user_id)
+    folder_path.mkdir(parents=True, exist_ok=True)
+    file_save_path = folder_path / f"{user_id}_{photo.file_unique_id}.jpg"
+    await tg_file.download_to_drive(file_save_path)
+    await update.message.reply_text("图片已保存")
+    with open(file_save_path, "rb") as f:
+        await update.message.reply_photo(photo=f, caption="测试图片")
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """

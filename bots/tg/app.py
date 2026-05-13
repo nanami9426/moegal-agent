@@ -26,6 +26,9 @@ def build_application() -> Application:
 
     # 普通文本 handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tg_handlers.handle_text))
+    
+    # 图片 handler
+    application.add_handler(MessageHandler(filters.PHOTO, tg_handlers.handel_receive_picture))
 
     # 错误处理
     application.add_error_handler(tg_handlers.handle_error)
