@@ -83,8 +83,8 @@ def setup_logging() -> logging.Logger:
     # 3. 命令行彩色输出
     console_handler = RichHandler(
         console=None,
-        rich_tracebacks=True,
-        tracebacks_show_locals=True,
+        rich_tracebacks=False,
+        tracebacks_show_locals=False,
         markup=True,
         show_time=True,
         show_level=True,

@@ -1,17 +1,31 @@
 # ========== Telegram Handlers ==========
+from pathlib import Path
+
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
 )
-from pathlib import Path
+
 from agent.router import route_message
+from services.subscriptions import create_subscription
+from services.users import upsert_user
 from utils.logger import logger
+
+
+def _telegram_display_name(user) -> str | None:
+    if user is None:
+        return None
+
+    parts = [user.first_name, user.last_name]
+    display_name = " ".join(part for part in parts if part)
+    return display_name or user.username
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
 
     message = (
-        f"你好，{user.first_name if user else '朋友'}！\n\n"
+        f"你好{'，' + user.first_name if user else ''}！\n\n"
         "我是 Moegal Agent 的早期版本。\n\n"
     )
 
@@ -31,19 +45,37 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    处理 /subscribe xxx
-    第一版先 mock，后面写入 subscriptions 表。
+    处理 /subscribe xxx。
     """
+    user = update.effective_user
     target = " ".join(context.args).strip()
 
     if not target:
-        await update.message.reply_text("用法：/subscribe 关键词\n例如：/subscribe ブルアカ")
+        await update.message.reply_text("用法：/subscribe 关键词")
         return
 
-    await update.message.reply_text(
-        f"已订阅：{target}\n\n"
-        "之后我会在每日摘要里优先推送相关内容。"
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    app_user = upsert_user(
+        platform="tg",
+        platform_user_id=str(user.id),
+        username=user.username,
+        display_name=_telegram_display_name(user),
+        language_code=user.language_code,
     )
+    result = create_subscription(user_id=app_user.id, target=target)
+    subscription = result.subscription
+
+    if result.created:
+        message = f"已订阅：{subscription.target}\n\n之后我会在每日摘要里优先推送相关内容。"
+    elif result.reenabled:
+        message = f"已重新启用订阅：{subscription.target}"
+    else:
+        message = f"已订阅过：{subscription.target}\n\n我不会重复创建。"
+
+    await update.message.reply_text(message)
 
 
 async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -63,6 +95,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """
     处理普通文本。
     """
+    user = update.effective_user
     text = update.message.text or ""
 
     logger.info(
@@ -71,7 +104,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text,
     )
 
-    result = route_message(text)
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    result = await route_message(
+        "tg",
+        str(user.id),
+        text,
+        username=user.username,
+        display_name=_telegram_display_name(user),
+        language_code=user.language_code,
+    )
     await update.message.reply_text(result)
 
 
