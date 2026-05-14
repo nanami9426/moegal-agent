@@ -1,12 +1,17 @@
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Column, ForeignKey, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def generate_user_id() -> int:
+    return secrets.randbelow(9_000_000_000) + 1_000_000_000
 
 
 class User(SQLModel, table=True):
@@ -15,7 +20,10 @@ class User(SQLModel, table=True):
         UniqueConstraint("platform", "platform_user_id", name="uq_users_platform_user"),
     )
 
-    id: int | None = Field(default=None, primary_key=True)
+    id: int = Field(
+        default_factory=generate_user_id,
+        sa_column=Column(BigInteger, primary_key=True, autoincrement=False),
+    )
     platform: str = Field(index=True, max_length=32)
     platform_user_id: str = Field(index=True, max_length=128)
     username: str | None = Field(default=None, max_length=255)
@@ -34,7 +42,9 @@ class Subscription(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", index=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
     type: str = Field(index=True, max_length=64)
     target: str = Field(max_length=512)
     display_name: str | None = Field(default=None, max_length=255)
@@ -80,7 +90,9 @@ class Delivery(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", index=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
     subscription_id: int | None = Field(
         default=None,
         foreign_key="subscriptions.id",
@@ -100,7 +112,9 @@ class MediaAsset(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", index=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
     platform: str = Field(index=True, max_length=32)
     platform_file_id: str = Field(max_length=255)
     platform_unique_id: str = Field(index=True, max_length=255)
@@ -122,7 +136,9 @@ class Conversation(SQLModel, table=True):
     __tablename__ = "conversations"
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", index=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
     platform: str = Field(index=True, max_length=32)
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)

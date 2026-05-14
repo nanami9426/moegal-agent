@@ -15,7 +15,7 @@ def create_subscription(
     user_id: Annotated[int, InjectedState("user_id")],
     type: str = "keyword",
 ) -> str:
-    # 订阅
+    """Create or re-enable a user's subscription for a target keyword or source."""
     result = create_subscription_record(user_id=user_id, target=target, type=type)
     subscription = result.subscription
 
@@ -32,7 +32,7 @@ def create_subscription(
 def list_subscriptions(
     user_id: Annotated[int, InjectedState("user_id")],
 ) -> str:
-    # 查看用户当前订阅
+    """List the user's active subscriptions."""
     subscriptions = list_subscription_records(user_id=user_id)
 
     if not subscriptions:
