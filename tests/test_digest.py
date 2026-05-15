@@ -1,0 +1,212 @@
+import os
+import unittest
+from contextlib import ExitStack
+from datetime import datetime, timezone
+from unittest.mock import patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel, Session, select
+
+from db.models import ContentItem, Delivery, Subscription, User
+from services.content import upsert_rss_entries
+from services.digest import mark_deliveries_sent, prepare_daily_digest
+from services.rss import RssEntry, RssFetchError, RssFetchResult
+from services.subscriptions import create_subscription
+
+
+class DigestServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+        self.user_id = 1_000_000_001
+        with Session(self.engine) as session:
+            session.add(
+                User(
+                    id=self.user_id,
+                    platform="tg",
+                    platform_user_id="42",
+                    username="tester",
+                )
+            )
+            session.commit()
+
+        self.stack = ExitStack()
+        self.stack.enter_context(patch("services.subscriptions.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.content.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.digest.get_engine", return_value=self.engine))
+        self.stack.enter_context(
+            patch.dict(
+                os.environ,
+                {
+                    "MOEGAL_RSS_FEEDS": "https://example.com/feed.xml",
+                    "MOEGAL_DIGEST_LOOKBACK_HOURS": "48",
+                    "MOEGAL_DIGEST_MAX_ITEMS": "10",
+                },
+                clear=False,
+            )
+        )
+
+    def tearDown(self) -> None:
+        self.stack.close()
+
+    def test_create_subscription_dedupes_and_reenables(self) -> None:
+        first = create_subscription(user_id=self.user_id, target="ブルアカ")
+        second = create_subscription(user_id=self.user_id, target="ブルアカ")
+
+        self.assertTrue(first.created)
+        self.assertFalse(second.created)
+        self.assertFalse(second.reenabled)
+
+        with Session(self.engine) as session:
+            subscription = session.exec(select(Subscription)).one()
+            subscription.enabled = False
+            session.add(subscription)
+            session.commit()
+
+        third = create_subscription(user_id=self.user_id, target="ブルアカ")
+        self.assertFalse(third.created)
+        self.assertTrue(third.reenabled)
+
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(Subscription)).all()), 1)
+
+    def test_upsert_rss_entries_dedupes_content_items(self) -> None:
+        entry = self._rss_entry(title="ブルアカ 新イベント", entry_id="entry-1")
+
+        first = upsert_rss_entries([entry])
+        second = upsert_rss_entries([entry])
+
+        self.assertEqual(first.created_count, 1)
+        self.assertEqual(second.created_count, 0)
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(ContentItem)).all()), 1)
+
+    def test_digest_matches_keyword_marks_sent_and_does_not_repeat(self) -> None:
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        fetch_result = RssFetchResult(
+            entries=[
+                self._rss_entry(
+                    title="ブルアカ 新活动公开",
+                    summary="今天公开了新的活动情报。",
+                    entry_id="entry-1",
+                )
+            ],
+            errors=[],
+        )
+
+        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+            first = prepare_daily_digest(self.user_id)
+
+        self.assertIn("ブルアカ 新活动公开", first.text)
+        self.assertEqual(first.item_count, 1)
+        self.assertEqual(len(first.delivery_ids), 1)
+
+        mark_deliveries_sent(first.delivery_ids)
+        with Session(self.engine) as session:
+            delivery = session.exec(select(Delivery)).one()
+            self.assertEqual(delivery.status, "sent")
+            self.assertIsNotNone(delivery.sent_at)
+
+        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+            second = prepare_daily_digest(self.user_id)
+
+        self.assertIn("暂无新的订阅内容", second.text)
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(Delivery)).all()), 1)
+
+    def test_digest_ignores_non_matching_content(self) -> None:
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        fetch_result = RssFetchResult(
+            entries=[self._rss_entry(title="孤独摇滚 新情报", entry_id="entry-2")],
+            errors=[],
+        )
+
+        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+            result = prepare_daily_digest(self.user_id)
+
+        self.assertIn("暂无新的订阅内容", result.text)
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(Delivery)).all()), 0)
+
+    def test_digest_accepts_entry_without_link_or_published_time(self) -> None:
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        fetch_result = RssFetchResult(
+            entries=[
+                self._rss_entry(
+                    title="ブルアカ 无链接条目",
+                    entry_id=None,
+                    link=None,
+                    published_at=None,
+                )
+            ],
+            errors=[],
+        )
+
+        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+            result = prepare_daily_digest(self.user_id)
+
+        self.assertIn("ブルアカ 无链接条目", result.text)
+        self.assertEqual(len(result.delivery_ids), 1)
+
+        with Session(self.engine) as session:
+            item = session.exec(select(ContentItem)).one()
+            self.assertEqual(item.source_url, "https://example.com/feed.xml")
+            self.assertIsNone(item.published_at)
+
+    def test_digest_handles_missing_source_subscription_and_fetch_failure(self) -> None:
+        with patch.dict(os.environ, {"MOEGAL_RSS_FEEDS": ""}, clear=False):
+            no_source = prepare_daily_digest(self.user_id)
+        self.assertIn("还没有配置内容源", no_source.text)
+
+        no_subscription = prepare_daily_digest(self.user_id)
+        self.assertIn("你还没有订阅", no_subscription.text)
+
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        fetch_result = RssFetchResult(
+            entries=[],
+            errors=[RssFetchError(feed_url="https://example.com/feed.xml", message="timeout")],
+        )
+        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+            failed_source = prepare_daily_digest(self.user_id)
+
+        self.assertIn("暂无新的订阅内容", failed_source.text)
+        self.assertIn("内容源暂时不可访问", failed_source.text)
+
+    def _rss_entry(
+        self,
+        *,
+        title: str,
+        entry_id: str | None,
+        summary: str = "摘要",
+        link: str | None = "https://example.com/default",
+        published_at: datetime | None = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc),
+    ) -> RssEntry:
+        entry_link = link
+        if link == "https://example.com/default" and entry_id is not None:
+            entry_link = f"https://example.com/{entry_id}"
+
+        return RssEntry(
+            feed_url="https://example.com/feed.xml",
+            feed_title="Example Feed",
+            entry_id=entry_id,
+            link=entry_link,
+            title=title,
+            summary=summary,
+            author="Example Author",
+            published_at=published_at,
+            raw={
+                "feed_url": "https://example.com/feed.xml",
+                "feed_title": "Example Feed",
+                "entry_id": entry_id,
+                "link": entry_link,
+            },
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

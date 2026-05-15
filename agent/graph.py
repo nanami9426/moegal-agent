@@ -15,7 +15,7 @@ from services.users import upsert_user
 
 SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。
 用简短、自然的中文回复，不要复读用户原文。
-第一版还没有真实内容抓取和图片理解能力，不要声称已经可以推送实时内容。"""
+第一版支持基于 RSS/RSSHub 的订阅摘要，但还没有主动实时推送和图片理解能力。"""
 
 
 def prepare_context(state: MoegalState) -> dict[str, Any]:

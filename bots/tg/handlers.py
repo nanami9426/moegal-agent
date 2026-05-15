@@ -1,4 +1,5 @@
 # ========== Telegram Handlers ==========
+import asyncio
 from pathlib import Path
 
 from telegram import Update
@@ -7,6 +8,7 @@ from telegram.ext import (
 )
 
 from agent.router import route_message
+from services.digest import mark_deliveries_sent, prepare_daily_digest
 from services.subscriptions import create_subscription
 from services.users import upsert_user
 from utils.logger import logger
@@ -80,15 +82,29 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    处理 /digest
-    第一版先 mock，后面读取数据库和订阅内容。
+    处理 /digest。
     """
-    await update.message.reply_text(
-        "今日摘要：\n\n"
-        "1. 暂无真实抓取结果\n"
-        "2. 当前 digest 还是 mock 数据\n"
-        "3. 下一步会接入订阅表和内容抓取 worker"
+    user = update.effective_user
+
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    app_user = upsert_user(
+        platform="tg",
+        platform_user_id=str(user.id),
+        username=user.username,
+        display_name=_telegram_display_name(user),
+        language_code=user.language_code,
     )
+    result = await asyncio.to_thread(prepare_daily_digest, app_user.id)
+
+    await update.message.reply_text(result.text)
+
+    if result.delivery_ids:
+        # 如果这次 digest 有内容，就把对应的 delivery 标记为 sent
+        # 防止重复推送，用户下一次 /digest 就不会发送已经发过的内容
+        await asyncio.to_thread(mark_deliveries_sent, result.delivery_ids)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

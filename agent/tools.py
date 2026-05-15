@@ -3,6 +3,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
+from services.digest import build_daily_digest as build_daily_digest_text
 from services.subscriptions import (
     create_subscription as create_subscription_record,
 )
@@ -45,4 +46,12 @@ def list_subscriptions(
     return "当前订阅：\n" + "\n".join(lines)
 
 
-TOOLS = [create_subscription, list_subscriptions]
+@tool
+def build_daily_digest(
+    user_id: Annotated[int, InjectedState("user_id")],
+) -> str:
+    """Fetch RSS sources, match subscriptions, and build the user's daily digest."""
+    return build_daily_digest_text(user_id=user_id)
+
+
+TOOLS = [create_subscription, list_subscriptions, build_daily_digest]
