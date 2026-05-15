@@ -8,10 +8,10 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
 from db.models import ContentItem, Delivery, Subscription, User
-from services.content import upsert_rss_entries
-from services.digest import mark_deliveries_sent, prepare_daily_digest
-from services.rss import RssEntry, RssFetchError, RssFetchResult
-from services.subscriptions import create_subscription
+from services.account.subscriptions import create_subscription
+from services.rss_pipeline.content_store import upsert_rss_entries
+from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
+from services.rss_pipeline.feeds import RssEntry, RssFetchError, RssFetchResult
 
 
 class DigestServiceTest(unittest.TestCase):
@@ -35,11 +35,11 @@ class DigestServiceTest(unittest.TestCase):
             session.commit()
 
         self.stack = ExitStack()
-        self.stack.enter_context(patch("services.subscriptions.get_engine", return_value=self.engine))
-        self.stack.enter_context(patch("services.content.get_engine", return_value=self.engine))
-        self.stack.enter_context(patch("services.digest.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.account.subscriptions.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.rss_pipeline.content_store.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.rss_pipeline.digest.get_engine", return_value=self.engine))
         self.feed_urls_mock = self.stack.enter_context(
-            patch("services.digest.get_configured_feed_urls", return_value=["https://example.com/feed.xml"])
+            patch("services.rss_pipeline.digest.get_configured_feed_urls", return_value=["https://example.com/feed.xml"])
         )
 
     def tearDown(self) -> None:
@@ -90,7 +90,7 @@ class DigestServiceTest(unittest.TestCase):
             errors=[],
         )
 
-        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
             first = prepare_daily_digest(self.user_id)
 
         self.assertIn("ブルアカ 新活动公开", first.text)
@@ -103,7 +103,7 @@ class DigestServiceTest(unittest.TestCase):
             self.assertEqual(delivery.status, "sent")
             self.assertIsNotNone(delivery.sent_at)
 
-        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
             second = prepare_daily_digest(self.user_id)
 
         self.assertIn("暂无新的订阅内容", second.text)
@@ -117,7 +117,7 @@ class DigestServiceTest(unittest.TestCase):
             errors=[],
         )
 
-        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
             result = prepare_daily_digest(self.user_id)
 
         self.assertIn("暂无新的订阅内容", result.text)
@@ -138,7 +138,7 @@ class DigestServiceTest(unittest.TestCase):
             errors=[],
         )
 
-        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
             result = prepare_daily_digest(self.user_id)
 
         self.assertIn("ブルアカ 无链接条目", result.text)
@@ -163,7 +163,7 @@ class DigestServiceTest(unittest.TestCase):
             entries=[],
             errors=[RssFetchError(feed_url="https://example.com/feed.xml", message="timeout")],
         )
-        with patch("services.digest.fetch_rss_entries", return_value=fetch_result):
+        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
             failed_source = prepare_daily_digest(self.user_id)
 
         self.assertIn("暂无新的订阅内容", failed_source.text)

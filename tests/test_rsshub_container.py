@@ -3,7 +3,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from services.rsshub_container import (
+from services.runtime.rsshub import (
     load_rsshub_docker_config,
     start_rsshub_stack,
     stop_rsshub_stack,
@@ -51,10 +51,10 @@ class RsshubContainerTest(unittest.TestCase):
             return False
 
         with (
-            patch("services.rsshub_container.shutil.which", return_value="/usr/bin/docker"),
-            patch("services.rsshub_container._docker", side_effect=fake_docker),
-            patch("services.rsshub_container._docker_ok", side_effect=fake_docker_ok),
-            patch("services.rsshub_container._wait_until_ready"),
+            patch("services.runtime.rsshub.shutil.which", return_value="/usr/bin/docker"),
+            patch("services.runtime.rsshub._docker", side_effect=fake_docker),
+            patch("services.runtime.rsshub._docker_ok", side_effect=fake_docker_ok),
+            patch("services.runtime.rsshub._wait_until_ready"),
             patch.dict(os.environ, {}, clear=True),
         ):
             runtime = start_rsshub_stack()
@@ -86,9 +86,9 @@ class RsshubContainerTest(unittest.TestCase):
             return subprocess.CompletedProcess(["docker", *args], 0, stdout="", stderr="")
 
         with (
-            patch("services.rsshub_container._container_exists", return_value=True),
-            patch("services.rsshub_container._container_running", return_value=True),
-            patch("services.rsshub_container._docker", side_effect=fake_docker),
+            patch("services.runtime.rsshub._container_exists", return_value=True),
+            patch("services.runtime.rsshub._container_running", return_value=True),
+            patch("services.runtime.rsshub._docker", side_effect=fake_docker),
         ):
             runtime = start_runtime()
             stop_rsshub_stack(runtime)
@@ -97,7 +97,7 @@ class RsshubContainerTest(unittest.TestCase):
 
 
 def start_runtime():
-    from services.rsshub_container import RsshubRuntime
+    from services.runtime.rsshub import RsshubRuntime
 
     return RsshubRuntime(
         container_names=("rsshub", "rsshub-redis"),

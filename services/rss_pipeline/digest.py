@@ -7,8 +7,8 @@ from sqlmodel import Session, select
 
 from db.models import ContentItem, Delivery, Subscription, utc_now
 from db.session import get_engine
-from services.content import upsert_rss_entries
-from services.rss import fetch_rss_entries, get_configured_feed_urls
+from services.rss_pipeline.content_store import upsert_rss_entries
+from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_urls
 
 
 DIGEST_LOOKBACK_HOURS = 48

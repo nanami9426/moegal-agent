@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from services.rss import get_configured_feed_urls
+from services.rss_pipeline.feeds import get_configured_feed_urls
 
 
 class RssConfigTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class RssConfigTest(unittest.TestCase):
             )
 
             with (
-                patch("services.rss.RSS_FEEDS_CONFIG_PATH", config_path),
+                patch("services.rss_pipeline.feeds.RSS_FEEDS_CONFIG_PATH", config_path),
                 patch.dict(
                     os.environ,
                     {

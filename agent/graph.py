@@ -10,7 +10,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from agent.state import MoegalState
 from agent.tools import TOOLS
-from services.users import upsert_user
+from services.account.users import upsert_user
 
 
 SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。

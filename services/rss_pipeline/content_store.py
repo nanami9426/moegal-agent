@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from db.models import ContentItem, utc_now
 from db.session import get_engine
-from services.rss import RssEntry
+from services.rss_pipeline.feeds import RssEntry
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@ from utils.logger import logger
 from bots.tg.app import build_application
 from config.settings import init_settings
 from db.session import init_db
-from services.rsshub_container import start_rsshub_stack, stop_rsshub_stack
+from services.runtime.rsshub import start_rsshub_stack, stop_rsshub_stack
 
 def main() -> None:
     init_settings()
