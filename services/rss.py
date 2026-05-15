@@ -4,12 +4,15 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import feedparser
 import httpx
 
 
+RSS_FEEDS_CONFIG_PATH = Path("config/rss_feeds.txt")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -40,12 +43,20 @@ class RssFetchResult:
 
 
 def get_configured_feed_urls() -> list[str]:
-    raw_value = os.getenv("MOEGAL_RSS_FEEDS", "")
-    return [
-        part.strip()
-        for part in re.split(r"[,\n]", raw_value)
-        if part.strip()
-    ]
+    if not RSS_FEEDS_CONFIG_PATH.exists():
+        return []
+
+    base_url = _rsshub_base_url()
+    access_key = os.getenv("MOEGAL_RSSHUB_ACCESS_KEY", "moegal_rsshub")
+    urls: list[str] = []
+
+    for line in RSS_FEEDS_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        feed = line.strip()
+        if not feed or feed.startswith("#"):
+            continue
+        urls.append(_build_feed_url(feed, base_url=base_url, access_key=access_key))
+
+    return urls
 
 
 def fetch_rss_entries(feed_urls: list[str] | None = None) -> RssFetchResult:
@@ -166,3 +177,28 @@ def _clean_text(value: Any) -> str | None:
     # 把连续空白压缩成一个普通空格，并去掉首尾空白
     text = _WHITESPACE_RE.sub(" ", text).strip()
     return text or None
+
+
+def _rsshub_base_url() -> str:
+    base_url = os.getenv("MOEGAL_RSSHUB_BASE_URL", "http://127.0.0.1:1200").strip().rstrip("/")
+    if not base_url:
+        base_url = "http://127.0.0.1:1200"
+    if "://" not in base_url:
+        base_url = f"http://{base_url}"
+    return base_url
+
+
+def _build_feed_url(feed: str, *, base_url: str, access_key: str) -> str:
+    if feed.startswith(("http://", "https://")):
+        url = feed
+    else:
+        path = feed if feed.startswith("/") else f"/{feed}"
+        url = f"{base_url}{path}"
+
+    if not access_key:
+        return url
+
+    parsed_url = urlparse(url)
+    query = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
+    query.setdefault("key", access_key)
+    return urlunparse(parsed_url._replace(query=urlencode(query)))

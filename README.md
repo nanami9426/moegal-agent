@@ -4,18 +4,20 @@
 
 The first subscription version uses RSS/RSSHub feeds and manual `/digest`.
 
-Required environment variable:
+RSSHub endpoint environment variables:
 
 ```env
-MOEGAL_RSS_FEEDS=https://example.com/feed.xml,https://rsshub.app/example
+MOEGAL_RSSHUB_BASE_URL=http://127.0.0.1:1200
+MOEGAL_RSSHUB_ACCESS_KEY=moegal_rsshub
 ```
 
-Optional environment variables:
+RSS feeds live in `config/rss_feeds.txt`, one route per line:
 
-```env
-MOEGAL_DIGEST_LOOKBACK_HOURS=48
-MOEGAL_DIGEST_MAX_ITEMS=10
+```text
+/bangumi.tv/calendar/today
 ```
+
+RSSHub is managed automatically when the project starts. The code uses fixed local Docker defaults: `rsshub`, `rsshub-redis`, `rss_default`, `diygod/rsshub:chromium-bundled`, and `redis:alpine`.
 
 Flow:
 

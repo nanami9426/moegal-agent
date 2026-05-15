@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
@@ -12,6 +11,10 @@ from services.content import upsert_rss_entries
 from services.rss import fetch_rss_entries, get_configured_feed_urls
 
 
+DIGEST_LOOKBACK_HOURS = 48
+DIGEST_MAX_ITEMS = 10
+
+
 @dataclass(frozen=True)
 class DigestResult:
     text: str
@@ -22,7 +25,7 @@ class DigestResult:
 def prepare_daily_digest(user_id: int) -> DigestResult:
     feed_urls = get_configured_feed_urls()
     if not feed_urls:
-        return DigestResult(text="还没有配置内容源。请先设置 MOEGAL_RSS_FEEDS。", delivery_ids=())
+        return DigestResult(text="还没有配置内容源。请先在 config/rss_feeds.txt 添加 RSSHub route。", delivery_ids=())
 
     subscriptions = _list_active_keyword_subscriptions(user_id)
     if not subscriptions:
@@ -32,10 +35,10 @@ def prepare_daily_digest(user_id: int) -> DigestResult:
     # 抓取 RSS 内容并入库
     if fetch_result.entries:
         upsert_rss_entries(fetch_result.entries)
-        
+
     # 按订阅匹配内容，生成待投递记录
     _create_pending_deliveries(user_id, subscriptions)
-    digest_items = _list_pending_digest_items(user_id, _digest_max_items())
+    digest_items = _list_pending_digest_items(user_id, DIGEST_MAX_ITEMS)
 
     if not digest_items:
         if fetch_result.errors and not fetch_result.entries:
@@ -93,7 +96,7 @@ def _create_pending_deliveries(
     user_id: int,
     subscriptions: list[Subscription],
 ) -> int:
-    cutoff = utc_now() - timedelta(hours=_digest_lookback_hours()) # 只处理最近 xx 小时内发布的内容
+    cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS) # 只处理最近 xx 小时内发布的内容
     created_count = 0
 
     with Session(get_engine()) as session:
@@ -245,24 +248,3 @@ def _digest_sort_key(item: _DigestItem) -> tuple[bool, datetime, datetime]:
     if published_at.tzinfo is None:
         published_at = published_at.replace(tzinfo=timezone.utc)
     return (item.published_at is not None, published_at, item.created_at)
-
-
-def _digest_lookback_hours() -> int:
-    return _positive_int_env("MOEGAL_DIGEST_LOOKBACK_HOURS", 48)
-
-
-def _digest_max_items() -> int:
-    return _positive_int_env("MOEGAL_DIGEST_MAX_ITEMS", 10)
-
-
-def _positive_int_env(name: str, default: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-
-    try:
-        value = int(raw_value)
-    except ValueError:
-        return default
-
-    return max(value, 1)

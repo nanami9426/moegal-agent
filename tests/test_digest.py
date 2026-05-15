@@ -1,4 +1,3 @@
-import os
 import unittest
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -39,16 +38,8 @@ class DigestServiceTest(unittest.TestCase):
         self.stack.enter_context(patch("services.subscriptions.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.content.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.digest.get_engine", return_value=self.engine))
-        self.stack.enter_context(
-            patch.dict(
-                os.environ,
-                {
-                    "MOEGAL_RSS_FEEDS": "https://example.com/feed.xml",
-                    "MOEGAL_DIGEST_LOOKBACK_HOURS": "48",
-                    "MOEGAL_DIGEST_MAX_ITEMS": "10",
-                },
-                clear=False,
-            )
+        self.feed_urls_mock = self.stack.enter_context(
+            patch("services.digest.get_configured_feed_urls", return_value=["https://example.com/feed.xml"])
         )
 
     def tearDown(self) -> None:
@@ -159,10 +150,11 @@ class DigestServiceTest(unittest.TestCase):
             self.assertIsNone(item.published_at)
 
     def test_digest_handles_missing_source_subscription_and_fetch_failure(self) -> None:
-        with patch.dict(os.environ, {"MOEGAL_RSS_FEEDS": ""}, clear=False):
-            no_source = prepare_daily_digest(self.user_id)
+        self.feed_urls_mock.return_value = []
+        no_source = prepare_daily_digest(self.user_id)
         self.assertIn("还没有配置内容源", no_source.text)
 
+        self.feed_urls_mock.return_value = ["https://example.com/feed.xml"]
         no_subscription = prepare_daily_digest(self.user_id)
         self.assertIn("你还没有订阅", no_subscription.text)
 

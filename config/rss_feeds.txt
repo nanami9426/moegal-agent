@@ -1,0 +1,4 @@
+# One RSSHub route per line. Relative routes are resolved against
+# MOEGAL_RSSHUB_BASE_URL and automatically receive ?key=MOEGAL_RSSHUB_ACCESS_KEY.
+
+/bangumi.tv/calendar/today
