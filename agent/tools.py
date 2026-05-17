@@ -50,7 +50,7 @@ def list_subscriptions(
 def build_daily_digest(
     user_id: Annotated[int, InjectedState("user_id")],
 ) -> str:
-    """Fetch RSS sources, match subscriptions, and build the user's daily digest."""
+    """Read cached RSS entries, match subscriptions, and build the user's daily digest."""
     return build_daily_digest_text(user_id=user_id)
 
 

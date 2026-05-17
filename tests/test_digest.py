@@ -11,7 +11,7 @@ from db.models import ContentItem, Delivery, Subscription, User
 from services.account.subscriptions import create_subscription
 from services.rss_pipeline.content_store import upsert_rss_entries
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
-from services.rss_pipeline.feeds import RssEntry, RssFetchError, RssFetchResult
+from services.rss_pipeline.feeds import RssEntry
 
 
 _DEFAULT_PUBLISHED_AT = object()
@@ -100,20 +100,27 @@ class DigestServiceTest(unittest.TestCase):
 
     def test_digest_matches_keyword_marks_sent_and_does_not_repeat(self) -> None:
         create_subscription(user_id=self.user_id, target="ブルアカ")
-        fetch_result = RssFetchResult(
-            entries=[
+        upsert_rss_entries(
+            [
                 self._rss_entry(
                     title="ブルアカ 新活动公开",
                     summary="今天公开了新的活动情报。",
                     entry_id="entry-1",
                 )
-            ],
-            errors=[],
+            ]
         )
 
-        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
+        with (
+            patch(
+                "services.rss_pipeline.digest.fetch_rss_entries",
+                create=True,
+            ) as digest_fetch_mock,
+            patch("services.rss_pipeline.feeds.fetch_rss_entries") as feeds_fetch_mock,
+        ):
             first = prepare_daily_digest(self.user_id)
 
+        digest_fetch_mock.assert_not_called()
+        feeds_fetch_mock.assert_not_called()
         self.assertIn("ブルアカ 新活动公开", first.text)
         self.assertEqual(first.item_count, 1)
         self.assertEqual(len(first.delivery_ids), 1)
@@ -124,8 +131,7 @@ class DigestServiceTest(unittest.TestCase):
             self.assertEqual(delivery.status, "sent")
             self.assertIsNotNone(delivery.sent_at)
 
-        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
-            second = prepare_daily_digest(self.user_id)
+        second = prepare_daily_digest(self.user_id)
 
         self.assertIn("暂无新的订阅内容", second.text)
         with Session(self.engine) as session:
@@ -133,13 +139,9 @@ class DigestServiceTest(unittest.TestCase):
 
     def test_digest_ignores_non_matching_content(self) -> None:
         create_subscription(user_id=self.user_id, target="ブルアカ")
-        fetch_result = RssFetchResult(
-            entries=[self._rss_entry(title="孤独摇滚 新情报", entry_id="entry-2")],
-            errors=[],
-        )
+        upsert_rss_entries([self._rss_entry(title="孤独摇滚 新情报", entry_id="entry-2")])
 
-        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
-            result = prepare_daily_digest(self.user_id)
+        result = prepare_daily_digest(self.user_id)
 
         self.assertIn("暂无新的订阅内容", result.text)
         with Session(self.engine) as session:
@@ -147,8 +149,8 @@ class DigestServiceTest(unittest.TestCase):
 
     def test_digest_accepts_entry_without_link_or_published_time(self) -> None:
         create_subscription(user_id=self.user_id, target="ブルアカ")
-        fetch_result = RssFetchResult(
-            entries=[
+        upsert_rss_entries(
+            [
                 self._rss_entry(
                     title="ブルアカ 无链接条目",
                     entry_id=None,
@@ -156,11 +158,9 @@ class DigestServiceTest(unittest.TestCase):
                     published_at=None,
                 )
             ],
-            errors=[],
         )
 
-        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
-            result = prepare_daily_digest(self.user_id)
+        result = prepare_daily_digest(self.user_id)
 
         self.assertIn("ブルアカ 无链接条目", result.text)
         self.assertEqual(len(result.delivery_ids), 1)
@@ -170,7 +170,7 @@ class DigestServiceTest(unittest.TestCase):
             self.assertEqual(item.source_url, "https://example.com/feed.xml")
             self.assertIsNone(item.published_at)
 
-    def test_digest_handles_missing_source_subscription_and_fetch_failure(self) -> None:
+    def test_digest_handles_missing_source_subscription_and_empty_cache(self) -> None:
         self.feed_urls_mock.return_value = []
         no_source = prepare_daily_digest(self.user_id)
         self.assertIn("还没有配置内容源", no_source.text)
@@ -180,15 +180,9 @@ class DigestServiceTest(unittest.TestCase):
         self.assertIn("你还没有订阅", no_subscription.text)
 
         create_subscription(user_id=self.user_id, target="ブルアカ")
-        fetch_result = RssFetchResult(
-            entries=[],
-            errors=[RssFetchError(feed_url="https://example.com/feed.xml", message="timeout")],
-        )
-        with patch("services.rss_pipeline.digest.fetch_rss_entries", return_value=fetch_result):
-            failed_source = prepare_daily_digest(self.user_id)
+        refreshing = prepare_daily_digest(self.user_id)
 
-        self.assertIn("暂无新的订阅内容", failed_source.text)
-        self.assertIn("内容源暂时不可访问", failed_source.text)
+        self.assertIn("内容缓存还在后台刷新", refreshing.text)
 
     def _rss_entry(
         self,

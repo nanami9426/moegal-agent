@@ -2,17 +2,17 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from db.models import ContentItem, Delivery, Subscription, utc_now
 from db.session import get_engine
-from services.rss_pipeline.content_store import upsert_rss_entries
-from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_urls
+from services.rss_pipeline.feeds import get_configured_feed_urls
 
 
 DIGEST_LOOKBACK_HOURS = 48
-DIGEST_MAX_ITEMS = 10
+DIGEST_MAX_ITEMS = 5
 
 
 @dataclass(frozen=True)
@@ -25,30 +25,29 @@ class DigestResult:
 def prepare_daily_digest(user_id: int) -> DigestResult:
     feed_urls = get_configured_feed_urls()
     if not feed_urls:
-        return DigestResult(text="还没有配置内容源。请先在 config/rss_feeds.txt 添加 RSSHub route。", delivery_ids=())
+        return DigestResult(
+            text="还没有配置内容源。请先在 config/rss_feeds.txt 添加 RSSHub route。",
+            delivery_ids=(),
+        )
 
     subscriptions = _list_active_keyword_subscriptions(user_id)
     if not subscriptions:
-        return DigestResult(text="你还没有订阅。可以先用 /subscribe 关键词 添加订阅。", delivery_ids=())
+        return DigestResult(
+            text="你还没有订阅。可以先用 /subscribe 关键词 添加订阅。",
+            delivery_ids=(),
+        )
 
-    fetch_result = fetch_rss_entries(feed_urls)
-    # 抓取 RSS 内容并入库
-    if fetch_result.entries:
-        upsert_rss_entries(fetch_result.entries)
+    if not _has_cached_rss_content():
+        return DigestResult(text="内容缓存还在后台刷新，请稍后再试。", delivery_ids=())
 
     # 按订阅匹配内容，生成待投递记录
     _create_pending_deliveries(user_id, subscriptions)
     digest_items = _list_pending_digest_items(user_id, DIGEST_MAX_ITEMS)
 
     if not digest_items:
-        if fetch_result.errors and not fetch_result.entries:
-            return DigestResult(
-                text="暂无新的订阅内容。内容源暂时不可访问，请稍后再试。",
-                delivery_ids=(),
-            )
         return DigestResult(text="暂无新的订阅内容。", delivery_ids=())
 
-    text = _format_digest(digest_items, failed_source_count=len(fetch_result.errors))
+    text = _format_digest(digest_items)
     delivery_ids = tuple(item.delivery_id for item in digest_items)
     return DigestResult(text=text, delivery_ids=delivery_ids, item_count=len(digest_items))
 
@@ -92,32 +91,62 @@ def _list_active_keyword_subscriptions(user_id: int) -> list[Subscription]:
         )
 
 
+def _has_cached_rss_content() -> bool:
+    with Session(get_engine()) as session:
+        return (
+            session.exec(
+                select(ContentItem.id)
+                .where(ContentItem.source_type == "rss")
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+
 def _create_pending_deliveries(
     user_id: int,
     subscriptions: list[Subscription],
 ) -> int:
-    cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS) # 只处理最近 xx 小时内发布的内容
+    cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS)
     created_count = 0
 
     with Session(get_engine()) as session:
-        items = session.exec(select(ContentItem)).all()
+        items = session.exec(
+            select(ContentItem).where(
+                ContentItem.source_type == "rss",
+                or_(
+                    ContentItem.published_at.is_(None),
+                    ContentItem.published_at >= cutoff,
+                ),
+            )
+        ).all()
+
+        content_item_ids = [
+            item.id
+            for item in items
+            if item.id is not None
+        ]
+        if not content_item_ids:
+            return 0
+
+        existing_content_item_ids = set(
+            session.exec(
+                select(Delivery.content_item_id).where(
+                    Delivery.user_id == user_id,
+                    Delivery.content_item_id.in_(content_item_ids),
+                )
+            ).all()
+        )
 
         for item in items:
-            if not _is_recent_enough(item.published_at, cutoff):
-                # 跳过太旧的内容。published_at 为空的内容会被认为可用，因为有些 RSS entry 没有发布时间。
+            if item.id is None:
                 continue
 
             matched_subscription = _match_subscription(item, subscriptions)
             if matched_subscription is None:
                 continue
 
-            existing = session.exec(
-                select(Delivery).where(
-                    Delivery.user_id == user_id,
-                    Delivery.content_item_id == item.id,
-                )
-            ).first()
-            if existing is not None:
+            if item.id in existing_content_item_ids:
                 continue
 
             delivery = Delivery(
@@ -128,6 +157,7 @@ def _create_pending_deliveries(
             )
             session.add(delivery)
             created_count += 1
+            existing_content_item_ids.add(item.id)
 
         try:
             session.commit()
@@ -197,20 +227,8 @@ def _match_subscription(
     return None
 
 
-def _is_recent_enough(published_at: datetime | None, cutoff: datetime) -> bool:
-    if published_at is None:
-        return True
-
-    if published_at.tzinfo is None:
-        published_at = published_at.replace(tzinfo=timezone.utc)
-
-    return published_at >= cutoff
-
-
-def _format_digest(items: list[_DigestItem], *, failed_source_count: int) -> str:
+def _format_digest(items: list[_DigestItem]) -> str:
     lines = [f"今日摘要：找到 {len(items)} 条新的订阅内容。"]
-    if failed_source_count:
-        lines.append(f"有 {failed_source_count} 个内容源暂时不可访问，已先展示可用内容。")
 
     for index, item in enumerate(items, start=1):
         lines.append("")
