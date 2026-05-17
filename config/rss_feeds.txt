@@ -1,4 +1,100 @@
 # One RSSHub route per line. Relative routes are resolved against
 # MOEGAL_RSSHUB_BASE_URL and automatically receive ?key=MOEGAL_RSSHUB_ACCESS_KEY.
 
+# Anime / ACG discovery
 /bangumi.tv/calendar/today
+/bangumi.tv/anime/followrank
+/bgmlist/onair/zh-Hans
+/gamer/gnn/anime
+/gamer/ani/new_anime
+/dmzj/news/donghuaqingbao
+/dmzj/news/qingxiaoshuoqingbao
+/dmzj/news/shengyouqingbao
+/hpoi/info/all
+/hpoi/items/all/release
+/ymgal/game/release
+/ymgal/article/news
+/qoo-app/news
+/vcb-s/category/works
+
+# Bilibili discovery
+/bilibili/weekly/1
+/bilibili/partion/33/1
+/bilibili/partion/51/1
+/bilibili/partion/ranking/33/7/1
+/bilibili/mall/new/1
+/bilibili/mall/new/3
+/bilibili/hot-search
+
+# Game and mobile-game official notices
+/mihoyo/bbs/official/2/1/20
+/mihoyo/bbs/official/2/2/20
+/mihoyo/bbs/official/6/1/20
+/mihoyo/bbs/official/6/2/20
+/mihoyo/bbs/official/8/1/20
+/mihoyo/bbs/official/8/2/20
+/arknights/news
+/arknights/announce/Android/ALL
+/gf-cn/news/1
+/gf-cn/news/3
+/priconne-redive/news
+/sega/pjsekai/news
+/ff14/zh/all
+/nintendo/direct
+/nintendo/news/china
+
+# Game media and deals
+/3dmgame/news/acg
+/gamersky/news/today
+/xiaoheihe/news
+/xiaoheihe/add2cart/epic
+/xiaoheihe/add2cart/steam
+/xiaoheihe/discount/pc
+/yxdzqb/popular_cn
+/yystv/docs
+/famitsu/category/news-game
+
+# AI / models / research
+/openai/blog
+/openai/research
+/openai/chatgpt/release-notes
+/huggingface/daily-papers
+/huggingface/blog-zh
+/deeplearning/thebatch
+/modelscope/community
+/modelscope/models
+/baai/hub/events
+/aijishu/channel/ai
+/mittrchina/index
+
+# Tech news / product / business
+/readhub
+/readhub/daily
+/36kr/hot-list/24
+/infoq/recommend
+/ithome/it
+/ithome/ranking/24h
+/huxiu/moment
+/pingwest/status
+/chaping/newsflash
+/leiphone/newsflash
+/mydrivers/rank/0
+/sspai/index
+/sspai/matrix
+/woshipm/popular/daily
+/latepost
+/wanqu/news
+
+# Developer / engineering
+/juejin/category/ai
+/juejin/trending/ai/weekly
+/juejin/trending/frontend/weekly
+/hackernews
+/hellogithub/article/hot
+/gocn/topics
+/rustcc/news
+/segmentfault/channel/frontend
+/web/blog
+/nodejs/blog/zh-cn
+/sec-wiki/weekly
+/nosec/security

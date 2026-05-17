@@ -14,6 +14,9 @@ from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_dig
 from services.rss_pipeline.feeds import RssEntry, RssFetchError, RssFetchResult
 
 
+_DEFAULT_PUBLISHED_AT = object()
+
+
 class DigestServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine(
@@ -176,11 +179,17 @@ class DigestServiceTest(unittest.TestCase):
         entry_id: str | None,
         summary: str = "摘要",
         link: str | None = "https://example.com/default",
-        published_at: datetime | None = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc),
+        published_at: datetime | None | object = _DEFAULT_PUBLISHED_AT,
     ) -> RssEntry:
         entry_link = link
         if link == "https://example.com/default" and entry_id is not None:
             entry_link = f"https://example.com/{entry_id}"
+
+        entry_published_at = (
+            datetime.now(timezone.utc)
+            if published_at is _DEFAULT_PUBLISHED_AT
+            else published_at
+        )
 
         return RssEntry(
             feed_url="https://example.com/feed.xml",
@@ -190,7 +199,7 @@ class DigestServiceTest(unittest.TestCase):
             title=title,
             summary=summary,
             author="Example Author",
-            published_at=published_at,
+            published_at=entry_published_at,
             raw={
                 "feed_url": "https://example.com/feed.xml",
                 "feed_title": "Example Feed",
