@@ -28,6 +28,9 @@ def upsert_rss_entries(entries: list[RssEntry]) -> ContentUpsertResult:
     with Session(get_engine()) as session:
         for source_id, entry in deduped_entries.items():
             content_hash = _content_hash(entry)
+            source_url = _truncate_for_db(entry.link or entry.feed_url, 2048)
+            title = _truncate_for_db(entry.title, 512)
+            author = _truncate_for_db(entry.author or entry.feed_title, 255)
             item = session.exec(
                 select(ContentItem).where(
                     ContentItem.source_type == "rss",
@@ -39,10 +42,10 @@ def upsert_rss_entries(entries: list[RssEntry]) -> ContentUpsertResult:
                 item = ContentItem(
                     source_type="rss",
                     source_id=source_id,
-                    source_url=entry.link or entry.feed_url,
-                    title=entry.title,
+                    source_url=source_url,
+                    title=title,
                     summary=entry.summary,
-                    author=entry.author or entry.feed_title,
+                    author=author,
                     published_at=entry.published_at,
                     fetched_at=utc_now(),
                     raw=entry.raw,
@@ -51,10 +54,10 @@ def upsert_rss_entries(entries: list[RssEntry]) -> ContentUpsertResult:
                 session.add(item)
                 created_count += 1
             else:
-                item.source_url = entry.link or entry.feed_url
-                item.title = entry.title
+                item.source_url = source_url
+                item.title = title
                 item.summary = entry.summary
-                item.author = entry.author or entry.feed_title
+                item.author = author
                 item.published_at = entry.published_at
                 item.fetched_at = utc_now()
                 item.raw = entry.raw
@@ -137,3 +140,9 @@ def _content_hash(entry: RssEntry) -> str:
         ]
     )
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _truncate_for_db(value: str | None, max_length: int) -> str | None:
+    if value is None or len(value) <= max_length:
+        return value
+    return value[:max_length]

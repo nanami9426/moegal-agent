@@ -80,6 +80,24 @@ class DigestServiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertEqual(len(session.exec(select(ContentItem)).all()), 1)
 
+    def test_upsert_rss_entries_truncates_long_database_fields(self) -> None:
+        entry = self._rss_entry(
+            title="T" * 600,
+            entry_id="entry-long-fields",
+            link="https://example.com/" + ("x" * 2100),
+            author="A" * 300,
+        )
+
+        upsert_rss_entries([entry])
+
+        with Session(self.engine) as session:
+            item = session.exec(select(ContentItem)).one()
+
+        self.assertEqual(len(item.title), 512)
+        self.assertEqual(len(item.author), 255)
+        self.assertEqual(len(item.source_url), 2048)
+        self.assertLessEqual(len(item.source_id), 255)
+
     def test_digest_matches_keyword_marks_sent_and_does_not_repeat(self) -> None:
         create_subscription(user_id=self.user_id, target="ブルアカ")
         fetch_result = RssFetchResult(
@@ -178,6 +196,7 @@ class DigestServiceTest(unittest.TestCase):
         title: str,
         entry_id: str | None,
         summary: str = "摘要",
+        author: str | None = "Example Author",
         link: str | None = "https://example.com/default",
         published_at: datetime | None | object = _DEFAULT_PUBLISHED_AT,
     ) -> RssEntry:
@@ -198,7 +217,7 @@ class DigestServiceTest(unittest.TestCase):
             link=entry_link,
             title=title,
             summary=summary,
-            author="Example Author",
+            author=author,
             published_at=entry_published_at,
             raw={
                 "feed_url": "https://example.com/feed.xml",
