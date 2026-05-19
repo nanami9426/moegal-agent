@@ -183,9 +183,12 @@ def _list_pending_digest_items(user_id: int, limit: int) -> list[_DigestItem]:
         rows = session.exec(
             select(Delivery, ContentItem)
             .join(ContentItem, Delivery.content_item_id == ContentItem.id)
+            .join(Subscription, Delivery.subscription_id == Subscription.id)
             .where(
                 Delivery.user_id == user_id,
                 Delivery.status == "pending",
+                Subscription.user_id == user_id,
+                Subscription.enabled == True,  # noqa: E712
             )
         ).all()
 

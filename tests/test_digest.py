@@ -173,6 +173,66 @@ class DigestServiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertEqual(len(session.exec(select(Delivery)).all()), 1)
 
+    def test_deleting_subscription_cancels_existing_pending_digest_items(self) -> None:
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        create_subscription(user_id=self.user_id, target="原神")
+        upsert_rss_entries(
+            [
+                self._rss_entry(
+                    title="ブルアカ 新活动公开",
+                    summary="今天公开了新的活动情报。",
+                    entry_id="entry-1",
+                )
+            ]
+        )
+
+        first = prepare_daily_digest(self.user_id)
+        self.assertIn("ブルアカ 新活动公开", first.text)
+        self.assertEqual(len(first.delivery_ids), 1)
+
+        delete_subscription(user_id=self.user_id, target="ブルアカ")
+        second = prepare_daily_digest(self.user_id)
+
+        self.assertNotIn("ブルアカ 新活动公开", second.text)
+        self.assertIn("暂无新的订阅内容", second.text)
+        with Session(self.engine) as session:
+            delivery = session.exec(select(Delivery)).one()
+            self.assertEqual(delivery.status, "canceled")
+
+    def test_digest_filters_pending_items_for_disabled_subscriptions(self) -> None:
+        disabled = create_subscription(user_id=self.user_id, target="ブルアカ").subscription
+        create_subscription(user_id=self.user_id, target="原神")
+        upsert_rss_entries(
+            [
+                self._rss_entry(
+                    title="ブルアカ 新活动公开",
+                    summary="今天公开了新的活动情报。",
+                    entry_id="entry-1",
+                )
+            ]
+        )
+
+        with Session(self.engine) as session:
+            subscription = session.get(Subscription, disabled.id)
+            self.assertIsNotNone(subscription)
+            subscription.enabled = False
+            session.add(subscription)
+            content_item = session.exec(select(ContentItem)).one()
+            session.add(
+                Delivery(
+                    user_id=self.user_id,
+                    subscription_id=disabled.id,
+                    content_item_id=content_item.id,
+                    status="pending",
+                )
+            )
+            session.commit()
+
+        result = prepare_daily_digest(self.user_id)
+
+        self.assertNotIn("ブルアカ 新活动公开", result.text)
+        self.assertIn("暂无新的订阅内容", result.text)
+
     def test_digest_ignores_non_matching_content(self) -> None:
         create_subscription(user_id=self.user_id, target="ブルアカ")
         upsert_rss_entries([self._rss_entry(title="孤独摇滚 新情报", entry_id="entry-2")])

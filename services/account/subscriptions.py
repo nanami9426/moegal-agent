@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from db.models import Subscription, utc_now
+from db.models import Delivery, Subscription, utc_now
 from db.session import get_engine
 
 # 创建后变为只读 frozen=True
@@ -109,6 +109,16 @@ def delete_subscription(user_id: int, target: str, *, type: str = "keyword", ) -
         subscription.enabled = False
         subscription.updated_at = utc_now()
         session.add(subscription)
+        pending_deliveries = session.exec(
+            select(Delivery).where(
+                Delivery.user_id == user_id,
+                Delivery.subscription_id == subscription.id,
+                Delivery.status == "pending",
+            )
+        ).all()
+        for delivery in pending_deliveries:
+            delivery.status = "canceled"
+            session.add(delivery)
         session.commit()
         session.refresh(subscription)
         return DeleteSubscriptionResult(subscription=subscription, deleted=True)
