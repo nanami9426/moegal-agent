@@ -1,31 +1,83 @@
 # Moegal Agent
 
-## RSS/RSSHub digest
+Moegal Agent 是一个面向二次元内容订阅场景的 Telegram 助手。当前版本以 RSS/RSSHub 为内容源，支持关键词订阅、取消订阅、查看订阅，以及通过 `/digest` 手动获取匹配内容摘要。
 
-The first subscription version uses RSS/RSSHub feeds and manual `/digest`.
+## 功能
 
-RSSHub endpoint environment variables:
+- Telegram Bot 轮询模式运行。
+- 通过自然语言或 `/subscribe` 管理关键词订阅。
+- 后台定时刷新 `config/rss_feeds.txt` 中配置的 RSSHub 路由。
+- 将 RSS 条目缓存到 PostgreSQL，并按用户订阅生成摘要。
+- 启动时自动拉起本地 RSSHub 和 Redis Docker 容器。
+
+## 环境要求
+
+- uv
+- PostgreSQL
+- Docker
+
+## 配置
+
+项目启动时会读取仓库根目录下的 `.env` 文件。最小配置示例：
 
 ```env
+TELEGRAM_BOT_TOKEN=
+DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/moegal
+OPENAI_API_KEY=
+MOEGAL_MODEL=
+
 MOEGAL_RSSHUB_BASE_URL=http://127.0.0.1:1200
 MOEGAL_RSSHUB_ACCESS_KEY=moegal_rsshub
-MOEGAL_RSS_REFRESH_INTERVAL_SECONDS=1800
+MOEGAL_RSS_REFRESH_INTERVAL_SECONDS=28800
 ```
 
-`MOEGAL_RSS_REFRESH_INTERVAL_SECONDS` controls the background cache refresh interval.
-It defaults to 1800 seconds and is clamped to a minimum of 60 seconds.
+可选配置：
 
-RSS feeds live in `config/rss_feeds.txt`, one route per line:
+- `OPENAI_BASE_URL`：使用 OpenAI 兼容服务时配置。
+- `MOEGAL_RSSHUB_BASE_URL`：RSSHub 访问地址，默认 `http://127.0.0.1:1200`。
+- `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
+- `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
+
+## 内容源
+
+RSSHub 路由配置在 `config/rss_feeds.txt`，每行一个路由：
 
 ```text
 /bangumi.tv/calendar/today
+/openai/blog
 ```
 
-RSSHub is managed automatically when the project starts. The code uses fixed local Docker defaults: `rsshub`, `rsshub-redis`, `rss_default`, `diygod/rsshub:chromium-bundled`, and `redis:alpine`.
+相对路由会基于 `MOEGAL_RSSHUB_BASE_URL` 生成完整 URL，并自动附加 `MOEGAL_RSSHUB_ACCESS_KEY`。
 
-Flow:
+## 启动
 
-1. Add a keyword subscription with `/subscribe xxx` or natural language.
-2. The bot refreshes configured RSS feeds in the background and stores entries in `content_items`.
-3. Run `/digest`.
-4. The bot reads cached RSS entries, matches active keyword subscriptions, returns pending items, then marks them as sent after the Telegram reply succeeds.
+安装依赖：
+
+```bash
+uv sync
+```
+
+确认 PostgreSQL 可用并已创建数据库后，启动 Bot：
+
+```bash
+uv run python main.py
+```
+
+RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-compose.yml`
+
+## Telegram 命令
+
+- `/start`：启动对话。
+- `/help`：查看当前支持的命令。
+- `/subscribe 关键词`：订阅关键词。
+- `/unsubscribe 关键词`：取消订阅关键词。
+- `/newchat`：开启新的对话上下文。
+- `/digest`：生成当前用户的订阅摘要。
+
+普通文本会进入 Agent 对话；如果内容表达了订阅、取消订阅、查看订阅或生成摘要等意图，Agent 会调用对应工具完成操作。
+
+## 当前限制
+
+- 摘要需要用户手动执行 `/digest`，暂未实现主动定时推送。
+- 图片消息当前只做本地保存和回传测试，暂未接入图片理解。
+- 数据库初始化使用 `SQLModel.metadata.create_all`，适合早期开发阶段，不等同于正式迁移系统。
