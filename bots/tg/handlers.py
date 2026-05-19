@@ -7,7 +7,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from agent.router import route_message
+from agent.router import route_message, start_new_conversation_context
 from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
@@ -41,7 +41,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/subscribe xxx\n\n"
         "2. 取消订阅关键词\n"
         "/unsubscribe xxx\n\n"
-        "3. 查看今日摘要\n"
+        "3. 开启新的对话上下文\n"
+        "/newchat\n\n"
+        "4. 查看今日摘要\n"
         "/digest"
     )
 
@@ -112,6 +114,20 @@ async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         message = f"没有找到有效订阅：{target}"
 
     await update.message.reply_text(message)
+
+
+async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    处理 /newchat。
+    """
+    user = update.effective_user
+
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    start_new_conversation_context("tg", str(user.id))
+    await update.message.reply_text("已开启新的对话。")
 
 
 async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
