@@ -14,6 +14,12 @@ class SubscriptionResult:
     reenabled: bool = False
 
 
+@dataclass(frozen=True)
+class DeleteSubscriptionResult:
+    subscription: Subscription | None
+    deleted: bool
+
+
 def create_subscription(user_id: int, target: str,
                         *,
                         type: str = "keyword", display_name: str | None = None) -> SubscriptionResult:
@@ -77,6 +83,35 @@ def create_subscription(user_id: int, target: str,
 
         session.refresh(subscription)
         return SubscriptionResult(subscription=subscription, created=True)
+
+
+def delete_subscription(user_id: int, target: str, *, type: str = "keyword", ) -> DeleteSubscriptionResult:
+    subscription_type = type.strip() or "keyword"
+    if subscription_type != "keyword":
+        subscription_type = "keyword"
+    normalized_target = target.strip()
+
+    if not normalized_target:
+        raise ValueError("subscription target is required.")
+
+    with Session(get_engine()) as session:
+        subscription = session.exec(
+            select(Subscription).where(
+                Subscription.user_id == user_id,
+                Subscription.type == subscription_type,
+                Subscription.target == normalized_target,
+            )
+        ).first()
+
+        if subscription is None or not subscription.enabled:
+            return DeleteSubscriptionResult(subscription=subscription, deleted=False)
+
+        subscription.enabled = False
+        subscription.updated_at = utc_now()
+        session.add(subscription)
+        session.commit()
+        session.refresh(subscription)
+        return DeleteSubscriptionResult(subscription=subscription, deleted=True)
 
 
 def list_subscriptions(user_id: int) -> list[Subscription]:

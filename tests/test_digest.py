@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
 from db.models import ContentItem, Delivery, Subscription, User
-from services.account.subscriptions import create_subscription
+from services.account.subscriptions import create_subscription, delete_subscription, list_subscriptions
 from services.rss_pipeline.content_store import upsert_rss_entries
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
 from services.rss_pipeline.feeds import RssEntry
@@ -68,6 +68,42 @@ class DigestServiceTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             self.assertEqual(len(session.exec(select(Subscription)).all()), 1)
+
+    def test_delete_subscription_disables_and_allows_reenable(self) -> None:
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+
+        result = delete_subscription(user_id=self.user_id, target="ブルアカ")
+
+        self.assertTrue(result.deleted)
+        self.assertIsNotNone(result.subscription)
+        self.assertEqual(list_subscriptions(self.user_id), [])
+
+        with Session(self.engine) as session:
+            subscription = session.exec(select(Subscription)).one()
+            self.assertFalse(subscription.enabled)
+
+        reenabled = create_subscription(user_id=self.user_id, target="ブルアカ")
+
+        self.assertFalse(reenabled.created)
+        self.assertTrue(reenabled.reenabled)
+        with Session(self.engine) as session:
+            subscriptions = session.exec(select(Subscription)).all()
+            self.assertEqual(len(subscriptions), 1)
+            self.assertTrue(subscriptions[0].enabled)
+
+    def test_delete_subscription_missing_or_disabled_is_noop(self) -> None:
+        missing = delete_subscription(user_id=self.user_id, target="ブルアカ")
+
+        self.assertFalse(missing.deleted)
+        self.assertIsNone(missing.subscription)
+
+        create_subscription(user_id=self.user_id, target="ブルアカ")
+        first = delete_subscription(user_id=self.user_id, target="ブルアカ")
+        second = delete_subscription(user_id=self.user_id, target="ブルアカ")
+
+        self.assertTrue(first.deleted)
+        self.assertFalse(second.deleted)
+        self.assertIsNotNone(second.subscription)
 
     def test_upsert_rss_entries_dedupes_content_items(self) -> None:
         entry = self._rss_entry(title="ブルアカ 新イベント", entry_id="entry-1")

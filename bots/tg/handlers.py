@@ -8,7 +8,7 @@ from telegram.ext import (
 )
 
 from agent.router import route_message
-from services.account.subscriptions import create_subscription
+from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
 from utils.logger import logger
@@ -39,7 +39,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "当前支持：\n\n"
         "1. 订阅关键词\n"
         "/subscribe xxx\n\n"
-        "2. 查看今日摘要\n"
+        "2. 取消订阅关键词\n"
+        "/unsubscribe xxx\n\n"
+        "3. 查看今日摘要\n"
         "/digest"
     )
 
@@ -76,6 +78,38 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         message = f"已重新启用订阅：{subscription.target}"
     else:
         message = f"已订阅过：{subscription.target}\n\n我不会重复创建。"
+
+    await update.message.reply_text(message)
+
+
+async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    处理 /unsubscribe xxx。
+    """
+    user = update.effective_user
+    target = " ".join(context.args).strip()
+
+    if not target:
+        await update.message.reply_text("用法：/unsubscribe 关键词")
+        return
+
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    app_user = upsert_user(
+        platform="tg",
+        platform_user_id=str(user.id),
+        username=user.username,
+        display_name=_telegram_display_name(user),
+        language_code=user.language_code,
+    )
+    result = delete_subscription(user_id=app_user.id, target=target)
+
+    if result.deleted and result.subscription is not None:
+        message = f"已取消订阅：{result.subscription.target}"
+    else:
+        message = f"没有找到有效订阅：{target}"
 
     await update.message.reply_text(message)
 

@@ -5,6 +5,7 @@ from langgraph.prebuilt import InjectedState
 
 from services.account.subscriptions import (
     create_subscription as create_subscription_record,
+    delete_subscription as delete_subscription_record,
 )
 from services.account.subscriptions import list_subscriptions as list_subscription_records
 from services.rss_pipeline.digest import build_daily_digest as build_daily_digest_text
@@ -27,6 +28,21 @@ def create_subscription(
         return f"已重新启用订阅：{subscription.target}。"
 
     return f"已订阅过：{subscription.target}。我不会重复创建。"
+
+
+@tool
+def delete_subscription(
+    target: str,
+    user_id: Annotated[int, InjectedState("user_id")],
+    type: str = "keyword",
+) -> str:
+    """Delete or disable a user's active subscription for a target keyword or source."""
+    result = delete_subscription_record(user_id=user_id, target=target, type=type)
+
+    if result.deleted and result.subscription is not None:
+        return f"已取消订阅：{result.subscription.target}。"
+
+    return f"没有找到有效订阅：{target}。"
 
 
 @tool
@@ -54,4 +70,4 @@ def build_daily_digest(
     return build_daily_digest_text(user_id=user_id)
 
 
-TOOLS = [create_subscription, list_subscriptions, build_daily_digest]
+TOOLS = [create_subscription, delete_subscription, list_subscriptions, build_daily_digest]
