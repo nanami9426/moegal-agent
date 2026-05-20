@@ -43,3 +43,6 @@ Thumbs.db
 
 # 临时保存的文件
 temp/
+
+# 日志目录
+logs/
