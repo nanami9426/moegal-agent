@@ -1,5 +1,8 @@
+import threading
+
 from utils.logger import logger
 from bots.tg.app import build_application
+from bots.qq.app import run_client as run_qq_client
 from config.settings import init_settings
 from db.session import init_db
 from services.rss_pipeline.refresher import start_rss_cache_refresher
@@ -14,7 +17,11 @@ def main() -> None:
         init_db()
         rss_refresher = start_rss_cache_refresher()
         application = build_application()
-        logger.info("Moegal bot started.")
+        threading.Thread(
+            target=run_qq_client,
+            name="qq-bot",
+            daemon=True,
+        ).start()
         # 本地开发先用 polling。
         # 部署到服务器后再切 webhook。
         application.run_polling()

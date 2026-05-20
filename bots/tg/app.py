@@ -5,18 +5,26 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from bots.tg import handlers as tg_handlers
 
 def build_application() -> Application:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
+    proxy_url = os.getenv("TG_PROXY_URL")
 
     if not token:
         raise RuntimeError(
             "Missing TELEGRAM_BOT_TOKEN. 请先在 .env 里配置 Telegram Bot Token。"
         )
 
-    application = Application.builder().token(token).build()
+    builder = Application.builder().token(token)
+    if proxy_url:
+        builder = builder.request(HTTPXRequest(proxy=proxy_url)).get_updates_request(
+            HTTPXRequest(proxy=proxy_url)
+        )
+
+    application = builder.build()
 
     # 命令类 handler
     application.add_handler(CommandHandler("start", tg_handlers.start))
