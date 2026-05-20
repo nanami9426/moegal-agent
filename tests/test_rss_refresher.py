@@ -1,8 +1,11 @@
 import os
+import tempfile
 import threading
+import time
 import unittest
 from contextlib import ExitStack
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -95,24 +98,139 @@ class RssCacheRefresherTest(unittest.TestCase):
                 MIN_RSS_REFRESH_INTERVAL_SECONDS,
             )
 
-        with patch.dict(os.environ, {RSS_REFRESH_INTERVAL_ENV: "120"}, clear=True):
-            self.assertEqual(get_rss_refresh_interval_seconds(), 120)
+        valid_interval = MIN_RSS_REFRESH_INTERVAL_SECONDS + 60
+        with patch.dict(os.environ, {RSS_REFRESH_INTERVAL_ENV: str(valid_interval)}, clear=True):
+            self.assertEqual(get_rss_refresh_interval_seconds(), valid_interval)
 
-    def test_refresher_runs_immediately_and_stops(self) -> None:
-        ran = threading.Event()
+    def test_refresher_runs_when_timestamp_file_is_missing_and_stops(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            timestamp_path = Path(temp_dir) / "rss_last_refresh_at"
+            ran = threading.Event()
 
-        def fake_refresh() -> RssCacheRefreshResult:
-            ran.set()
-            return RssCacheRefreshResult(feed_count=0, entry_count=0, error_count=0)
+            def fake_refresh() -> RssCacheRefreshResult:
+                ran.set()
+                return RssCacheRefreshResult(feed_count=1, entry_count=0, error_count=0)
 
-        with patch("services.rss_pipeline.refresher.refresh_rss_cache_once", side_effect=fake_refresh):
-            refresher = start_rss_cache_refresher(interval_seconds=60)
-            try:
-                self.assertTrue(ran.wait(timeout=1.0))
-            finally:
-                refresher.stop(timeout=1.0)
+            with (
+                patch("services.rss_pipeline.refresher.RSS_LAST_REFRESH_AT_PATH", timestamp_path),
+                patch(
+                    "services.rss_pipeline.refresher.refresh_rss_cache_once",
+                    side_effect=fake_refresh,
+                ),
+            ):
+                refresher = start_rss_cache_refresher(interval_seconds=60)
+                try:
+                    self.assertTrue(ran.wait(timeout=1.0))
+                finally:
+                    refresher.stop(timeout=1.0)
 
-        self.assertFalse(refresher.thread.is_alive())
+            self.assertFalse(refresher.thread.is_alive())
+            self.assertTrue(timestamp_path.exists())
+
+    def test_refresher_waits_when_timestamp_is_recent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            timestamp_path = Path(temp_dir) / "rss_last_refresh_at"
+            timestamp_path.write_text(f"{time.time()}\n", encoding="utf-8")
+            ran = threading.Event()
+
+            def fake_refresh() -> RssCacheRefreshResult:
+                ran.set()
+                return RssCacheRefreshResult(feed_count=1, entry_count=0, error_count=0)
+
+            with (
+                patch("services.rss_pipeline.refresher.RSS_LAST_REFRESH_AT_PATH", timestamp_path),
+                patch(
+                    "services.rss_pipeline.refresher.refresh_rss_cache_once",
+                    side_effect=fake_refresh,
+                ),
+            ):
+                refresher = start_rss_cache_refresher(interval_seconds=60)
+                try:
+                    self.assertFalse(ran.wait(timeout=0.2))
+                finally:
+                    refresher.stop(timeout=1.0)
+
+            self.assertFalse(refresher.thread.is_alive())
+
+    def test_refresher_runs_when_timestamp_is_expired_and_updates_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            timestamp_path = Path(temp_dir) / "rss_last_refresh_at"
+            previous_timestamp = time.time() - 120
+            timestamp_path.write_text(f"{previous_timestamp}\n", encoding="utf-8")
+            ran = threading.Event()
+
+            def fake_refresh() -> RssCacheRefreshResult:
+                ran.set()
+                return RssCacheRefreshResult(feed_count=1, entry_count=0, error_count=0)
+
+            with (
+                patch("services.rss_pipeline.refresher.RSS_LAST_REFRESH_AT_PATH", timestamp_path),
+                patch(
+                    "services.rss_pipeline.refresher.refresh_rss_cache_once",
+                    side_effect=fake_refresh,
+                ),
+            ):
+                refresher = start_rss_cache_refresher(interval_seconds=60)
+                try:
+                    self.assertTrue(ran.wait(timeout=1.0))
+                finally:
+                    refresher.stop(timeout=1.0)
+
+            self.assertFalse(refresher.thread.is_alive())
+            self.assertGreater(
+                float(timestamp_path.read_text(encoding="utf-8")),
+                previous_timestamp,
+            )
+
+    def test_refresher_runs_when_timestamp_file_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            timestamp_path = Path(temp_dir) / "rss_last_refresh_at"
+            timestamp_path.write_text("not-a-timestamp\n", encoding="utf-8")
+            ran = threading.Event()
+
+            def fake_refresh() -> RssCacheRefreshResult:
+                ran.set()
+                return RssCacheRefreshResult(feed_count=1, entry_count=0, error_count=0)
+
+            with (
+                patch("services.rss_pipeline.refresher.RSS_LAST_REFRESH_AT_PATH", timestamp_path),
+                patch(
+                    "services.rss_pipeline.refresher.refresh_rss_cache_once",
+                    side_effect=fake_refresh,
+                ),
+            ):
+                refresher = start_rss_cache_refresher(interval_seconds=60)
+                try:
+                    self.assertTrue(ran.wait(timeout=1.0))
+                finally:
+                    refresher.stop(timeout=1.0)
+
+            self.assertFalse(refresher.thread.is_alive())
+
+    def test_refresher_does_not_update_timestamp_when_refresh_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            timestamp_path = Path(temp_dir) / "rss_last_refresh_at"
+            ran = threading.Event()
+
+            def fake_refresh() -> RssCacheRefreshResult:
+                ran.set()
+                raise RuntimeError("boom")
+
+            with (
+                patch("services.rss_pipeline.refresher.RSS_LAST_REFRESH_AT_PATH", timestamp_path),
+                patch(
+                    "services.rss_pipeline.refresher.refresh_rss_cache_once",
+                    side_effect=fake_refresh,
+                ),
+            ):
+                refresher = start_rss_cache_refresher(interval_seconds=60)
+                try:
+                    self.assertTrue(ran.wait(timeout=1.0))
+                finally:
+                    refresher.stop(timeout=1.0)
+
+            self.assertFalse(refresher.thread.is_alive())
+            self.assertFalse(timestamp_path.exists())
 
 
 def _rss_entry(*, title: str, entry_id: str) -> RssEntry:
