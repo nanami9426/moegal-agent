@@ -1,8 +1,8 @@
 from threading import Lock
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from typing import Any
 
-from langchain_core.messages import HumanMessage
-
-from agent.graph import chat_graph, extract_final_text
+from agent.graph import chat_graph
 
 
 _context_versions: dict[str, int] = {}
@@ -27,6 +27,30 @@ def start_new_conversation_context(platform: str, platform_user_id: str) -> str:
         _context_versions[key] = version
     return f"{key}:v{version}"
 
+def _content_to_text(content: str | list[Any]) -> str:
+    if isinstance(content, str):
+        return content.strip()
+
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+        else:
+            parts.append(str(item))
+
+    return "\n".join(part.strip() for part in parts if part).strip()
+
+def extract_final_text(messages: list[BaseMessage]) -> str:
+    # 从消息列表里找出最终可以发给用户的文本
+    for message in reversed(messages):
+        if isinstance(message, AIMessage) and not message.tool_calls:
+            text = _content_to_text(message.content)
+            if text:
+                return text
+
+    return "我现在没有生成可发送的回复。"
 
 async def route_message(
     platform: str,

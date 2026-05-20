@@ -5,6 +5,7 @@ import botpy
 from botpy.message import C2CMessage
 
 from utils.logger import logger
+from agent.router import route_message
 
 
 class QQClient(botpy.Client):
@@ -22,7 +23,8 @@ class QQClient(botpy.Client):
             message.id,
             content,
         )
-        await message.reply(msg_type=0, content=f"测试回复：{content}")
+        result_str = await route_message("qq", message.author.user_openid, content)
+        await message.reply(msg_type=0, content=result_str)
 
 def build_client() -> QQClient:
     intents = botpy.Intents(public_messages=True)
