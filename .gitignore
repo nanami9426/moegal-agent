@@ -46,3 +46,10 @@ temp/
 
 # 日志目录
 logs/
+
+# 字体
+*.ttf
+
+# 需要下载的模型
+manga-ocr-base/
+*.pt
