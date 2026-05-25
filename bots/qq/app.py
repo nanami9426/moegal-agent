@@ -1,9 +1,12 @@
 import asyncio
+import logging
 import os
+from logging.handlers import TimedRotatingFileHandler
 
 import botpy
 from botpy.message import C2CMessage
 
+from config.paths import BOTPY_LOG_PATH, LOG_DIR
 from utils.logger import logger
 from agent.router import route_message
 
@@ -28,7 +31,20 @@ class QQClient(botpy.Client):
 
 def build_client() -> QQClient:
     intents = botpy.Intents(public_messages=True)
-    return QQClient(intents=intents, timeout=15)
+    LOG_DIR.mkdir(exist_ok=True)
+    return QQClient(
+        intents=intents,
+        timeout=15,
+        ext_handlers={
+            "handler": TimedRotatingFileHandler,
+            "format": "%(asctime)s\t[%(levelname)s]\t(%(filename)s:%(lineno)s)%(funcName)s\t%(message)s",
+            "level": logging.DEBUG,
+            "when": "D",
+            "backupCount": 7,
+            "encoding": "utf-8",
+            "filename": str(BOTPY_LOG_PATH),
+        },
+    )
 
 
 def run_client() -> None:
