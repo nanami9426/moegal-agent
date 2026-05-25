@@ -1,6 +1,21 @@
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-SAVED_DIR = PROJECT_ROOT / "saved_pictures"
+CONFIG_DIR = PROJECT_ROOT / "config"
+ASSETS_DIR = PROJECT_ROOT / "assets"
+FONTS_DIR = ASSETS_DIR / "fonts"
+TEMP_DIR = PROJECT_ROOT / "temp"
+LOG_DIR = PROJECT_ROOT / "logs"
+RSSHUB_DIR = PROJECT_ROOT / "rsshub"
+
+ENV_PATH = PROJECT_ROOT / ".env"
+RSS_FEEDS_CONFIG_PATH = CONFIG_DIR / "rss_feeds.txt"
+RSS_LAST_REFRESH_AT_PATH = TEMP_DIR / "rss_last_refresh_at"
+DEFAULT_FONT_PATH = FONTS_DIR / "LXGWWenKai-Regular.ttf"
+SAVED_PICTURES_DIR = TEMP_DIR / "saved_pictures"
+TG_SAVED_PICTURES_DIR = SAVED_PICTURES_DIR / "tg"
+ALL_LOG_PATH = LOG_DIR / "all.log"
+APP_LOG_PATH = LOG_DIR / "app.log"
+RSSHUB_DOCKER_COMPOSE_PATH = RSSHUB_DIR / "docker-compose.yml"

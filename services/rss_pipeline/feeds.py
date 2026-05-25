@@ -4,15 +4,14 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import feedparser
 import httpx
 
+from config.paths import RSS_FEEDS_CONFIG_PATH
 
-RSS_FEEDS_CONFIG_PATH = Path("config/rss_feeds.txt")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 

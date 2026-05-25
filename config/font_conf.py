@@ -2,7 +2,9 @@ from functools import lru_cache
 
 from PIL import ImageFont
 
-FONT_PATH = "assets/fonts/LXGWWenKai-Regular.ttf"
+from config.paths import DEFAULT_FONT_PATH
+
+FONT_PATH = str(DEFAULT_FONT_PATH)
 
 
 @lru_cache(maxsize=2048)

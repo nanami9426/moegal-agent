@@ -1,6 +1,5 @@
 # ========== Telegram Handlers ==========
 import asyncio
-from pathlib import Path
 
 from telegram import Update
 from telegram.ext import (
@@ -8,6 +7,7 @@ from telegram.ext import (
 )
 
 from agent.router import route_message, start_new_conversation_context
+from config.paths import TG_SAVED_PICTURES_DIR
 from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
@@ -191,7 +191,7 @@ async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_T
     photo = message.photo[-1] # -1 是最大尺寸
     tg_file = await photo.get_file()
     user_id = message.from_user.id
-    folder_path = Path("temp/saved_pictures/tg") / str(user_id)
+    folder_path = TG_SAVED_PICTURES_DIR / str(user_id)
     folder_path.mkdir(parents=True, exist_ok=True)
     file_save_path = folder_path / f"{user_id}_{photo.file_unique_id}.jpg"
     await tg_file.download_to_drive(file_save_path)

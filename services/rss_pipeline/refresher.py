@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from config.paths import RSS_LAST_REFRESH_AT_PATH
 from utils.logger import logger
 from services.rss_pipeline.content_store import upsert_rss_entries
 from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_urls
@@ -12,7 +13,6 @@ from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_u
 DEFAULT_RSS_REFRESH_INTERVAL_SECONDS = 60 * 60 * 8
 MIN_RSS_REFRESH_INTERVAL_SECONDS = 60 * 60
 RSS_REFRESH_INTERVAL_ENV = "MOEGAL_RSS_REFRESH_INTERVAL_SECONDS"
-RSS_LAST_REFRESH_AT_PATH = Path("temp/rss_last_refresh_at")
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,11 @@
 import logging
 import re
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
+from config.paths import ALL_LOG_PATH, APP_LOG_PATH, LOG_DIR
 from rich.logging import RichHandler
 
 
-LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 
@@ -59,7 +58,7 @@ def setup_logging() -> logging.Logger:
 
     # 1. 所有日志
     all_file_handler = RotatingFileHandler(
-        LOG_DIR / "all.log",
+        ALL_LOG_PATH,
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
@@ -70,7 +69,7 @@ def setup_logging() -> logging.Logger:
 
     # 2. 和命令行相同的日志
     app_file_handler = RotatingFileHandler(
-        LOG_DIR / "app.log",
+        APP_LOG_PATH,
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",

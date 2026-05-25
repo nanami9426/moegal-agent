@@ -1,8 +1,7 @@
-from pathlib import Path
-
 from dotenv import load_dotenv
+
+from config.paths import ENV_PATH
 
 
 def init_settings():
-    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
-    load_dotenv(dotenv_path=dotenv_path, override=True)
+    load_dotenv(dotenv_path=ENV_PATH, override=True)

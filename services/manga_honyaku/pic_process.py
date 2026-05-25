@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from config.font_conf import FontConfig
-from config.paths import SAVED_DIR
+from config.paths import SAVED_PICTURES_DIR
 from services.manga_honyaku.ocr import get_mocr
 
 OCR_MAX_CONCURRENCY = max(1, int(os.getenv("OCR_MAX_CONCURRENCY", "2")))
@@ -240,7 +240,7 @@ def draw_text_on_boxes(image: np.ndarray, boxes: list, texts: list, text_directi
 
 
 def save_img(file_bytes, pre: str, file_name: str):
-    folder_path = SAVED_DIR / pre
+    folder_path = SAVED_PICTURES_DIR / pre
     folder_path.mkdir(parents=True, exist_ok=True)
     with open(folder_path / file_name, "wb") as f:
         f.write(file_bytes)
