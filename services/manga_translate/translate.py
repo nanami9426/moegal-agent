@@ -1,13 +1,26 @@
 import asyncio
 import base64
+import os
 import random
 import time
+from functools import lru_cache
+
 import cv2
 import numpy as np
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from PIL import Image
+
 from services.manga_translate.ocr import get_det_model
 from services.manga_translate.pic_process import TextDirection, draw_text_on_boxes, get_text_masked_pic, save_img
 from utils.logger import logger
+
+TRANSLATE_SYSTEM_PROMPT = (
+    "你负责漫画和日常对话翻译。将用户输入翻译成简体中文。"
+    "如果输入只是标点、符号、拟声词或无法翻译的短片段，直接保留或自然转写。"
+    "只输出译文，不要解释、注解、括号补充、引号或多余前后缀。"
+    "保持自然对话、漫画台词或原声风格。"
+)
 
 class TranslateInputError(Exception):
     def __init__(self, status_code: int, message: str):
@@ -24,8 +37,39 @@ def decode_image(file_bytes: bytes):
         raise TranslateInputError(400, "图片解码失败，请确认输入为有效图片")
     return img_bgr_cv, Image.fromarray(img_bgr_cv)
 
-async def translate_req(text):
-    return text
+@lru_cache
+def get_translate_model():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY. 请先在 .env 中配置。")
+
+    return ChatOpenAI(
+        model=os.getenv("MOEGAL_MODEL"),
+        api_key=api_key,
+        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        temperature=0.2,
+    )
+
+async def translate_sentence(sentence: str) -> str:
+    response = await get_translate_model().ainvoke(
+        [
+            SystemMessage(content=TRANSLATE_SYSTEM_PROMPT),
+            HumanMessage(content=sentence),
+        ]
+    )
+    translated = str(response.content).strip()
+    return translated or sentence
+
+async def translate_req(text: list[str]) -> list[str]:
+    if len(text) == 0:
+        return []
+
+    async def translate_or_keep(sentence: str) -> str:
+        if not sentence.strip():
+            return sentence
+        return await translate_sentence(sentence)
+
+    return await asyncio.gather(*(translate_or_keep(sentence) for sentence in text))
 
 async def translate_image_bytes(file_bytes: bytes, include_res_img: bool,
                                 text_direction: TextDirection = "horizontal"):
