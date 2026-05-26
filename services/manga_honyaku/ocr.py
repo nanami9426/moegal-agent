@@ -5,9 +5,10 @@ import torch
 from manga_ocr import MangaOcr
 from ultralytics import YOLO
 from utils.logger import logger
+from config.paths import MODEL_DIR
 
-DET_MODEL_PATH = "assets/model/comic-text-segmenter.pt"
-MOCR_MODEL_PATH = "assets/model/manga-ocr-base"
+DET_MODEL_PATH = MODEL_DIR / "comic-text-segmenter.pt"
+MOCR_MODEL_PATH = MODEL_DIR / "manga-ocr-base"
 
 MODEL_LOCK = Lock()
 DET_MODEL: YOLO | None = None
