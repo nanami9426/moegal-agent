@@ -80,3 +80,9 @@ def get_mocr() -> MangaOcr:
         return MOCR
     _, mocr = warmup_models()
     return mocr
+
+
+def init_ocr_models() -> None:
+    logger.info("开始初始化 OCR 相关模型")
+    warmup_models()
+    logger.info("OCR 相关模型初始化完成")

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.font_conf import FontConfig
 from config.paths import SAVED_PICTURES_DIR
-from services.manga_honyaku.ocr import get_mocr
+from services.manga_translate.ocr import get_mocr
 
 OCR_MAX_CONCURRENCY = max(1, int(os.getenv("OCR_MAX_CONCURRENCY", "2")))
 INPAINT_RADIUS = 2

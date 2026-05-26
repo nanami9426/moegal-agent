@@ -5,6 +5,7 @@ from bots.tg.app import build_application
 from bots.qq.app import run_client as run_qq_client
 from config.settings import init_settings
 from db.session import init_db
+from services.manga_translate.ocr import init_ocr_models
 from services.rss_pipeline.refresher import start_rss_cache_refresher
 from services.runtime.rsshub import start_rsshub_stack, stop_rsshub_stack
 
@@ -15,6 +16,7 @@ def main() -> None:
     rss_refresher = None
     try:
         init_db()
+        init_ocr_models()
         rss_refresher = start_rss_cache_refresher()
         application = build_application()
         threading.Thread(

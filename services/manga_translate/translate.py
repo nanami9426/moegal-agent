@@ -5,8 +5,8 @@ import time
 import cv2
 import numpy as np
 from PIL import Image
-from services.manga_honyaku.ocr import get_det_model
-from services.manga_honyaku.pic_process import TextDirection, draw_text_on_boxes, get_text_masked_pic, save_img
+from services.manga_translate.ocr import get_det_model
+from services.manga_translate.pic_process import TextDirection, draw_text_on_boxes, get_text_masked_pic, save_img
 from utils.logger import logger
 
 class TranslateInputError(Exception):
