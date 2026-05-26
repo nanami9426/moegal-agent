@@ -240,7 +240,7 @@ def draw_text_on_boxes(image: np.ndarray, boxes: list, texts: list, text_directi
 
 
 def save_img(file_bytes, pre: str, file_name: str):
-    folder_path = SAVED_PICTURES_DIR / pre
+    folder_path = SAVED_PICTURES_DIR / "translate" / pre
     folder_path.mkdir(parents=True, exist_ok=True)
     with open(folder_path / file_name, "wb") as f:
         f.write(file_bytes)

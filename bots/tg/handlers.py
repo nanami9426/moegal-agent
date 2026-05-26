@@ -1,5 +1,7 @@
 # ========== Telegram Handlers ==========
 import asyncio
+import base64
+from io import BytesIO
 
 from telegram import Update
 from telegram.ext import (
@@ -10,6 +12,7 @@ from agent.router import route_message, start_new_conversation_context
 from config.paths import TG_SAVED_PICTURES_DIR
 from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
+from services.manga_translate.translate import TranslateInputError, translate_image_bytes
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
 from utils.logger import logger
 
@@ -196,8 +199,26 @@ async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_T
     file_save_path = folder_path / f"{user_id}_{photo.file_unique_id}.jpg"
     await tg_file.download_to_drive(file_save_path)
     await update.message.reply_text("图片已保存")
-    with open(file_save_path, "rb") as f:
-        await update.message.reply_photo(photo=f, caption="测试图片")
+
+    try:
+        file_bytes = bytes(await tg_file.download_as_bytearray())
+        _, _, translated_image = await translate_image_bytes(file_bytes, include_res_img=True)
+    except TranslateInputError as exc:
+        await update.message.reply_text(exc.message)
+        return
+    except Exception:
+        logger.exception("Telegram picture translation failed")
+        await update.message.reply_text("图片处理失败，请稍后再试。")
+        return
+
+    if translated_image is None:
+        await update.message.reply_text("未检测出文字")
+        return
+
+    b64_img, file_name = translated_image
+    translated_photo = BytesIO(base64.b64decode(b64_img))
+    translated_photo.name = file_name
+    await update.message.reply_photo(photo=translated_photo, caption="翻译后的图片")
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """

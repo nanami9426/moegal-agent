@@ -1,11 +1,62 @@
+import base64
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from bots.tg.handlers import newchat_command, unsubscribe_command
+from bots.tg.handlers import handel_receive_picture, newchat_command, unsubscribe_command
 
 
 class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
+    async def test_handel_receive_picture_replies_with_translated_image(self) -> None:
+        raw_image = b"raw-image"
+        translated_image = b"translated-image"
+
+        class FakeTelegramFile:
+            async def download_to_drive(self, path: Path) -> None:
+                path.write_bytes(raw_image)
+
+            async def download_as_bytearray(self) -> bytearray:
+                return bytearray(raw_image)
+
+        photo = SimpleNamespace(
+            file_unique_id="photo-1",
+            get_file=AsyncMock(return_value=FakeTelegramFile()),
+        )
+        message = SimpleNamespace(
+            photo=[photo],
+            from_user=SimpleNamespace(id=42),
+            reply_text=AsyncMock(),
+            reply_photo=AsyncMock(),
+        )
+        update = SimpleNamespace(message=message)
+        context = SimpleNamespace()
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
+            patch(
+                "bots.tg.handlers.translate_image_bytes",
+                AsyncMock(
+                    return_value=(
+                        ["原文"],
+                        ["译文"],
+                        (base64.b64encode(translated_image).decode("utf8"), "translated.png"),
+                    )
+                ),
+            ) as translate_image_bytes_mock,
+        ):
+            await handel_receive_picture(update, context)
+
+        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        message.reply_text.assert_awaited_once_with("图片已保存")
+        message.reply_photo.assert_awaited_once()
+        sent_photo = message.reply_photo.await_args.kwargs["photo"]
+        self.assertEqual(sent_photo.getvalue(), translated_image)
+        self.assertEqual(sent_photo.name, "translated.png")
+        self.assertEqual(message.reply_photo.await_args.kwargs["caption"], "翻译后的图片")
+
     async def test_unsubscribe_command_requires_target(self) -> None:
         update = SimpleNamespace(
             effective_user=SimpleNamespace(id=42),

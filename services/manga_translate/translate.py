@@ -25,7 +25,7 @@ def decode_image(file_bytes: bytes):
     return img_bgr_cv, Image.fromarray(img_bgr_cv)
 
 async def translate_req(text):
-    return "test: " + text
+    return text
 
 async def translate_image_bytes(file_bytes: bytes, include_res_img: bool,
                                 text_direction: TextDirection = "horizontal"):
@@ -36,7 +36,7 @@ async def translate_image_bytes(file_bytes: bytes, include_res_img: bool,
     raw_text, inpaint = await get_text_masked_pic(img_pil, img_bgr_cv, bboxes, True)
     if len(raw_text) == 0:
         logger.warning("未检测出文字")
-        return None, None, None, None
+        return None, None, None
 
     translated_text = await translate_req(raw_text)
     img_res = draw_text_on_boxes(inpaint, bboxes, translated_text, text_direction=text_direction)
