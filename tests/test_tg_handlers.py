@@ -29,6 +29,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             from_user=SimpleNamespace(id=42),
             reply_text=AsyncMock(),
             reply_photo=AsyncMock(),
+            reply_document=AsyncMock(),
         )
         update = SimpleNamespace(message=message)
         context = SimpleNamespace()
@@ -56,6 +57,12 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent_photo.getvalue(), translated_image)
         self.assertEqual(sent_photo.name, "translated.png")
         self.assertEqual(message.reply_photo.await_args.kwargs["caption"], "翻译后的图片")
+        message.reply_document.assert_awaited_once()
+        sent_document = message.reply_document.await_args.kwargs["document"]
+        self.assertEqual(sent_document.getvalue(), translated_image)
+        self.assertEqual(sent_document.tell(), 0)
+        self.assertEqual(sent_document.name, "translated.png")
+        self.assertEqual(message.reply_document.await_args.kwargs["caption"], "翻译后的图片")
 
     async def test_unsubscribe_command_requires_target(self) -> None:
         update = SimpleNamespace(

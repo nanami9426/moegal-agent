@@ -219,6 +219,9 @@ async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_T
     translated_photo = BytesIO(base64.b64decode(b64_img))
     translated_photo.name = file_name
     await update.message.reply_photo(photo=translated_photo, caption="翻译后的图片")
+    # 把读指针移到开头
+    translated_photo.seek(0)
+    await update.message.reply_document(document=translated_photo, caption="原图")
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
