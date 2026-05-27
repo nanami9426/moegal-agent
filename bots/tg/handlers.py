@@ -17,6 +17,9 @@ from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_dig
 from utils.logger import logger
 
 
+PENDING_TRANSLATE_PHOTO_KEY = "pending_translate_photo"
+
+
 def _telegram_display_name(user) -> str | None:
     if user is None:
         return None
@@ -47,10 +50,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "3. 开启新的对话上下文\n"
         "/newchat\n\n"
         "4. 查看今日摘要\n"
-        "/digest"
+        "/digest\n\n"
+        "5. 翻译漫画图片\n"
+        "/translate"
     )
 
     await update.message.reply_text(message)
+
+
+async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    处理 /translate。
+    """
+    context.user_data[PENDING_TRANSLATE_PHOTO_KEY] = True
+    await update.message.reply_text("请发送要翻译的漫画图片。")
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -191,6 +204,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # 处理图片
     message = update.message
+    if not context.user_data.get(PENDING_TRANSLATE_PHOTO_KEY):
+        await message.reply_text("请先发送 /translate，然后再发送漫画图片。")
+        return
+
+    context.user_data.pop(PENDING_TRANSLATE_PHOTO_KEY, None)
+
     photo = message.photo[-1] # -1 是最大尺寸
     tg_file = await photo.get_file()
     user_id = message.from_user.id
@@ -221,7 +240,7 @@ async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_photo(photo=translated_photo, caption="翻译后的图片")
     # 把读指针移到开头
     translated_photo.seek(0)
-    await update.message.reply_document(document=translated_photo, caption="原图")
+    await update.message.reply_document(document=translated_photo, caption="翻译后的图片")
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """

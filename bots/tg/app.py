@@ -33,6 +33,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("unsubscribe", tg_handlers.unsubscribe_command))
     application.add_handler(CommandHandler("newchat", tg_handlers.newchat_command))
     application.add_handler(CommandHandler("digest", tg_handlers.digest_command))
+    application.add_handler(CommandHandler("translate", tg_handlers.translate_command))
 
     # 普通文本 handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tg_handlers.handle_text))
