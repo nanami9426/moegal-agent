@@ -3,10 +3,50 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import numpy as np
+import torch
+
+from services.manga_translate.ocr import TEXT_BUBBLE_CONFIDENCE, TextBubbleDetector
 from services.manga_translate import translate
 
 
 class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
+    def test_text_bubble_detector_filters_text_bubbles_at_configured_confidence(self) -> None:
+        class FakeProcessor:
+            def __call__(self, **kwargs):
+                return {}
+
+            def post_process_object_detection(self, outputs, target_sizes, threshold):
+                self.threshold = threshold
+                return [
+                    {
+                        "boxes": torch.tensor(
+                            [
+                                [1.0, 2.0, 11.0, 12.0],
+                                [3.0, 4.0, 13.0, 14.0],
+                                [5.0, 6.0, 15.0, 16.0],
+                            ]
+                        ),
+                        "scores": torch.tensor([0.95, 0.99, 0.79]),
+                        "labels": torch.tensor([1, 0, 1]),
+                    }
+                ]
+
+        class FakeModel:
+            config = SimpleNamespace(label2id={"bubble": 0, "text_bubble": 1, "text_free": 2})
+
+            def __call__(self, **kwargs):
+                return SimpleNamespace()
+
+        processor = FakeProcessor()
+        detector = TextBubbleDetector(processor, FakeModel(), torch.device("cpu"))
+        image = np.zeros((20, 20, 3), dtype=np.uint8)
+
+        boxes = detector.detect_text_bubbles(image)
+
+        np.testing.assert_array_equal(boxes, np.array([[1.0, 2.0, 11.0, 12.0]], dtype=np.float32))
+        self.assertEqual(processor.threshold, TEXT_BUBBLE_CONFIDENCE)
+
     async def test_translate_req_translates_sentences_concurrently(self) -> None:
         started = asyncio.Event()
         first_is_waiting = asyncio.Event()

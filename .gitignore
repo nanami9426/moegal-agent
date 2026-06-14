@@ -54,3 +54,6 @@ logs/
 # 需要下载的模型
 manga-ocr-base/
 *.pt
+assets/models/models--*/
+assets/models/.locks/
+assets/models/CACHEDIR.TAG

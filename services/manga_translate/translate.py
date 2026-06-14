@@ -75,8 +75,7 @@ async def translate_image_bytes(file_bytes: bytes, include_res_img: bool,
                                 text_direction: TextDirection = "horizontal"):
     img_bgr_cv, img_pil = decode_image(file_bytes)
     det_model = get_det_model()
-    res = det_model(img_bgr_cv, verbose=False)
-    bboxes = res[0].boxes.xyxy.cpu().numpy()
+    bboxes = det_model.detect_text_bubbles(img_bgr_cv)
     raw_text, inpaint = await get_text_masked_pic(img_pil, img_bgr_cv, bboxes, True)
     if len(raw_text) == 0:
         logger.warning("未检测出文字")
