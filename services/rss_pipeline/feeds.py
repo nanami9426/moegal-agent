@@ -2,6 +2,7 @@ import calendar
 import html
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +15,10 @@ from config.paths import RSS_FEEDS_CONFIG_PATH
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
+RSS_FETCH_CONCURRENCY_ENV = "MOEGAL_RSS_FETCH_CONCURRENCY"
+DEFAULT_RSS_FETCH_CONCURRENCY = 8
+MAX_RSS_FETCH_CONCURRENCY = 32
+RSS_FETCH_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,12 @@ class RssFetchResult:
     errors: list[RssFetchError]
 
 
+@dataclass(frozen=True)
+class _SingleFeedFetchResult:
+    entries: list[RssEntry]
+    errors: list[RssFetchError]
+
+
 def get_configured_feed_urls() -> list[str]:
     if not RSS_FEEDS_CONFIG_PATH.exists():
         return []
@@ -61,39 +72,89 @@ def get_configured_feed_urls() -> list[str]:
 def fetch_rss_entries(feed_urls: list[str] | None = None) -> RssFetchResult:
     # 从一组 RSS/RSSHub URL 抓取内容，解析成统一的 RssEntry 列表
     # 同时把失败的源记录到 errors，最后一起返回。
-    urls = feed_urls if feed_urls is not None else get_configured_feed_urls()
+    urls = list(feed_urls) if feed_urls is not None else get_configured_feed_urls()
     entries: list[RssEntry] = [] # 成功解析出来的 RSS 条目
     errors: list[RssFetchError] = [] # 抓取失败或解析失败的 feed
 
     if not urls:
         return RssFetchResult(entries=entries, errors=errors)
 
-    with httpx.Client(follow_redirects=True, timeout=15.0) as client:
-        for feed_url in urls:
-            try:
-                response = client.get(feed_url)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                errors.append(RssFetchError(feed_url=feed_url, message=str(exc)))
-                continue
-            # 用 feedparser 解析 RSS/Atom 内容
-            parsed = feedparser.parse(response.content)
-            if parsed.bozo and not parsed.entries:
-                # feedparser 的 bozo 表示这个 feed 有解析异常
-                # 如果解析失败且没有条目，就记录错误，然后跳过
-                errors.append(
-                    RssFetchError(
-                        feed_url=feed_url,
-                        message=str(getattr(parsed, "bozo_exception", "invalid feed")),
-                    )
-                )
-                continue
+    results: list[_SingleFeedFetchResult | None] = [None] * len(urls)
+    max_workers = _rss_fetch_concurrency(len(urls))
 
-            feed_title = _clean_text(parsed.feed.get("title"))
-            for entry in parsed.entries:
-                entries.append(_normalize_entry(feed_url, feed_title, entry))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="rss-fetch") as executor:
+        future_to_index = {
+            executor.submit(_fetch_single_feed_entries, feed_url): index
+            for index, feed_url in enumerate(urls)
+        }
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            feed_url = urls[index]
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                results[index] = _SingleFeedFetchResult(
+                    entries=[],
+                    errors=[RssFetchError(feed_url=feed_url, message=str(exc))],
+                )
+
+    for result in results:
+        if result is None:
+            continue
+        entries.extend(result.entries)
+        errors.extend(result.errors)
 
     return RssFetchResult(entries=entries, errors=errors)
+
+
+def _fetch_single_feed_entries(feed_url: str) -> _SingleFeedFetchResult:
+    try:
+        response = httpx.get(
+            feed_url,
+            follow_redirects=True,
+            timeout=RSS_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        return _SingleFeedFetchResult(
+            entries=[],
+            errors=[RssFetchError(feed_url=feed_url, message=str(exc))],
+        )
+
+    # 用 feedparser 解析 RSS/Atom 内容
+    parsed = feedparser.parse(response.content)
+    if parsed.bozo and not parsed.entries:
+        # feedparser 的 bozo 表示这个 feed 有解析异常
+        # 如果解析失败且没有条目，就记录错误，然后跳过
+        return _SingleFeedFetchResult(
+            entries=[],
+            errors=[
+                RssFetchError(
+                    feed_url=feed_url,
+                    message=str(getattr(parsed, "bozo_exception", "invalid feed")),
+                )
+            ],
+        )
+
+    feed_title = _clean_text(parsed.feed.get("title"))
+    return _SingleFeedFetchResult(
+        entries=[_normalize_entry(feed_url, feed_title, entry) for entry in parsed.entries],
+        errors=[],
+    )
+
+
+def _rss_fetch_concurrency(feed_count: int) -> int:
+    raw_value = os.getenv(RSS_FETCH_CONCURRENCY_ENV)
+    if raw_value is None or raw_value.strip() == "":
+        configured_concurrency = DEFAULT_RSS_FETCH_CONCURRENCY
+    else:
+        try:
+            configured_concurrency = int(raw_value)
+        except ValueError:
+            configured_concurrency = DEFAULT_RSS_FETCH_CONCURRENCY
+
+    configured_concurrency = max(1, min(configured_concurrency, MAX_RSS_FETCH_CONCURRENCY))
+    return max(1, min(feed_count, configured_concurrency))
 
 
 def _normalize_entry(feed_url: str, feed_title: str | None, entry: Any) -> RssEntry:
