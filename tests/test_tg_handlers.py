@@ -233,40 +233,23 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         translate_image_bytes_mock.assert_not_awaited()
         route_image_message_mock.assert_not_awaited()
 
-    async def test_handle_text_sets_translate_mode_for_image_translation_request(self) -> None:
+    async def test_handle_text_routes_text_without_image_context_directly_to_agent(self) -> None:
         update, message = _build_text_update("我想翻译图片")
         context = SimpleNamespace(user_data={})
 
         with patch(
             "bots.tg.handlers.classify_image_translation_intent",
-            AsyncMock(return_value="translate"),
-        ) as classify_intent_mock, patch(
-            "bots.tg.handlers.route_message",
             AsyncMock(),
-        ) as route_message_mock:
-            await handle_text(update, context)
-
-        self.assertTrue(context.user_data[PENDING_TRANSLATE_PHOTO_KEY])
-        classify_intent_mock.assert_awaited_once_with("我想翻译图片")
-        route_message_mock.assert_not_awaited()
-        message.reply_text.assert_awaited_once_with("请发送要翻译的图片。")
-
-    async def test_handle_text_routes_normal_text_when_llm_finds_no_image_translation_intent(self) -> None:
-        update, message = _build_text_update("你好")
-        context = SimpleNamespace(user_data={})
-
-        with patch(
-            "bots.tg.handlers.classify_image_translation_intent",
-            AsyncMock(return_value="unknown"),
         ) as classify_intent_mock, patch(
             "bots.tg.handlers.route_message",
             AsyncMock(return_value="普通回复"),
         ) as route_message_mock:
             await handle_text(update, context)
 
-        classify_intent_mock.assert_awaited_once_with("你好")
+        self.assertNotIn(PENDING_TRANSLATE_PHOTO_KEY, context.user_data)
+        classify_intent_mock.assert_not_awaited()
         route_message_mock.assert_awaited_once()
-        self.assertEqual(route_message_mock.await_args.args[:3], ("tg", "42", "你好"))
+        self.assertEqual(route_message_mock.await_args.args[:3], ("tg", "42", "我想翻译图片"))
         message.reply_text.assert_awaited_once_with("普通回复")
 
     async def test_handel_receive_picture_translates_when_caption_requests_translation(self) -> None:

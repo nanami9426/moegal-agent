@@ -297,12 +297,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("这张图需要我帮你翻译吗？")
         return
 
-    intent = await _classify_image_translation_intent(text)
-    if intent == "translate":
-        context.user_data[PENDING_TRANSLATE_PHOTO_KEY] = True
-        await update.message.reply_text("请发送要翻译的图片。")
-        return
-
     result = await route_message(
         "tg",
         str(user.id),
