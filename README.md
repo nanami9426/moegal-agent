@@ -65,6 +65,13 @@ uv sync
 uv run python main.py
 ```
 
+默认会同时启动 QQ 和 Telegram。也可以通过 `--bot` 指定要启动的机器人：
+
+```bash
+uv run python main.py --bot qq
+uv run python main.py --bot qq,tg
+```
+
 RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-compose.yml`
 
 ## Telegram 命令
