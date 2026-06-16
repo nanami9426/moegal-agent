@@ -71,6 +71,11 @@ async def translate_req(text: list[str]) -> list[str]:
 
     return await asyncio.gather(*(translate_or_keep(sentence) for sentence in text))
 
+def is_manga_image_bytes(file_bytes: bytes) -> bool:
+    img_bgr_cv, _ = decode_image(file_bytes)
+    bboxes = get_det_model().detect_text_bubbles(img_bgr_cv)
+    return len(bboxes) > 0
+
 async def translate_image_bytes(file_bytes: bytes, include_res_img: bool,
                                 text_direction: TextDirection = "horizontal"):
     img_bgr_cv, img_pil = decode_image(file_bytes)

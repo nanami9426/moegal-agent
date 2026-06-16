@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import torch
@@ -101,6 +101,36 @@ class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
             result = await translate.translate_sentence("hello")
 
         self.assertEqual(result, "hello")
+
+    def test_is_manga_image_bytes_returns_true_when_text_bubbles_are_detected(self) -> None:
+        image = np.zeros((20, 20, 3), dtype=np.uint8)
+        detector = SimpleNamespace(
+            detect_text_bubbles=Mock(return_value=np.array([[1, 2, 3, 4]], dtype=np.float32))
+        )
+
+        with (
+            patch("services.manga_translate.translate.decode_image", return_value=(image, None)),
+            patch("services.manga_translate.translate.get_det_model", return_value=detector),
+        ):
+            result = translate.is_manga_image_bytes(b"raw-image")
+
+        self.assertTrue(result)
+        detector.detect_text_bubbles.assert_called_once_with(image)
+
+    def test_is_manga_image_bytes_returns_false_without_text_bubbles(self) -> None:
+        image = np.zeros((20, 20, 3), dtype=np.uint8)
+        detector = SimpleNamespace(
+            detect_text_bubbles=Mock(return_value=np.empty((0, 4), dtype=np.float32))
+        )
+
+        with (
+            patch("services.manga_translate.translate.decode_image", return_value=(image, None)),
+            patch("services.manga_translate.translate.get_det_model", return_value=detector),
+        ):
+            result = translate.is_manga_image_bytes(b"raw-image")
+
+        self.assertFalse(result)
+        detector.detect_text_bubbles.assert_called_once_with(image)
 
 
 if __name__ == "__main__":

@@ -6,12 +6,67 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from bots.tg.handlers import (
+    PENDING_COMIC_PHOTO_KEY,
     PENDING_TRANSLATE_PHOTO_KEY,
     handel_receive_picture,
+    handle_text,
     newchat_command,
     translate_command,
     unsubscribe_command,
 )
+
+
+def _user() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=42,
+        username="tester",
+        first_name="Test",
+        last_name=None,
+        language_code="zh",
+    )
+
+
+def _translated_image_result(image_bytes: bytes = b"translated-image"):
+    return (
+        ["原文"],
+        ["译文"],
+        (base64.b64encode(image_bytes).decode("utf8"), "translated.png"),
+    )
+
+
+def _build_photo_update(raw_image: bytes = b"raw-image", caption: str | None = None):
+    class FakeTelegramFile:
+        async def download_to_drive(self, path: Path) -> None:
+            path.write_bytes(raw_image)
+
+        async def download_as_bytearray(self) -> bytearray:
+            return bytearray(raw_image)
+
+    user = _user()
+    photo = SimpleNamespace(
+        file_unique_id="photo-1",
+        get_file=AsyncMock(return_value=FakeTelegramFile()),
+    )
+    message = SimpleNamespace(
+        photo=[photo],
+        from_user=user,
+        caption=caption,
+        reply_text=AsyncMock(),
+        reply_photo=AsyncMock(),
+        reply_document=AsyncMock(),
+    )
+    return SimpleNamespace(message=message, effective_user=user), message
+
+
+def _build_text_update(text: str):
+    user = _user()
+    message = SimpleNamespace(
+        text=text,
+        reply_text=AsyncMock(),
+        reply_photo=AsyncMock(),
+        reply_document=AsyncMock(),
+    )
+    return SimpleNamespace(message=message, effective_user=user), message
 
 
 class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
@@ -19,84 +74,226 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         update = SimpleNamespace(
             message=SimpleNamespace(reply_text=AsyncMock()),
         )
-        context = SimpleNamespace(user_data={})
+        context = SimpleNamespace(user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": b"old"}})
 
         await translate_command(update, context)
 
         self.assertTrue(context.user_data[PENDING_TRANSLATE_PHOTO_KEY])
-        update.message.reply_text.assert_awaited_once_with("请发送要翻译的漫画图片。")
+        self.assertNotIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
+        update.message.reply_text.assert_awaited_once_with("请发送要翻译的图片。")
 
-    async def test_handel_receive_picture_replies_with_translated_image(self) -> None:
+    async def test_handel_receive_picture_translates_after_translate_command(self) -> None:
         raw_image = b"raw-image"
-        translated_image = b"translated-image"
-
-        class FakeTelegramFile:
-            async def download_to_drive(self, path: Path) -> None:
-                path.write_bytes(raw_image)
-
-            async def download_as_bytearray(self) -> bytearray:
-                return bytearray(raw_image)
-
-        photo = SimpleNamespace(
-            file_unique_id="photo-1",
-            get_file=AsyncMock(return_value=FakeTelegramFile()),
-        )
-        message = SimpleNamespace(
-            photo=[photo],
-            from_user=SimpleNamespace(id=42),
-            reply_text=AsyncMock(),
-            reply_photo=AsyncMock(),
-            reply_document=AsyncMock(),
-        )
-        update = SimpleNamespace(message=message)
+        update, message = _build_photo_update(raw_image)
         context = SimpleNamespace(user_data={PENDING_TRANSLATE_PHOTO_KEY: True})
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
+            patch("bots.tg.handlers.is_manga_image_bytes") as is_manga_image_bytes_mock,
             patch(
                 "bots.tg.handlers.translate_image_bytes",
-                AsyncMock(
-                    return_value=(
-                        ["原文"],
-                        ["译文"],
-                        (base64.b64encode(translated_image).decode("utf8"), "translated.png"),
-                    )
-                ),
+                AsyncMock(return_value=_translated_image_result()),
             ) as translate_image_bytes_mock,
         ):
             await handel_receive_picture(update, context)
 
         self.assertNotIn(PENDING_TRANSLATE_PHOTO_KEY, context.user_data)
+        is_manga_image_bytes_mock.assert_not_called()
         translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
-        message.reply_text.assert_awaited_once_with("图片已保存")
+        message.reply_text.assert_not_awaited()
         message.reply_photo.assert_awaited_once()
         sent_photo = message.reply_photo.await_args.kwargs["photo"]
-        self.assertEqual(sent_photo.getvalue(), translated_image)
+        self.assertEqual(sent_photo.getvalue(), b"translated-image")
         self.assertEqual(sent_photo.name, "translated.png")
         self.assertEqual(message.reply_photo.await_args.kwargs["caption"], "翻译后的图片")
         message.reply_document.assert_awaited_once()
         sent_document = message.reply_document.await_args.kwargs["document"]
-        self.assertEqual(sent_document.getvalue(), translated_image)
+        self.assertEqual(sent_document.getvalue(), b"translated-image")
         self.assertEqual(sent_document.tell(), 0)
         self.assertEqual(sent_document.name, "translated.png")
         self.assertEqual(message.reply_document.await_args.kwargs["caption"], "翻译后的图片")
 
-    async def test_handel_receive_picture_requires_translate_command(self) -> None:
-        message = SimpleNamespace(reply_text=AsyncMock())
-        update = SimpleNamespace(message=message)
+    async def test_handel_receive_picture_answers_non_manga_image(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_photo_update(raw_image)
+        context = SimpleNamespace(user_data={})
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
+            patch("bots.tg.handlers.is_manga_image_bytes", return_value=False) as is_manga_image_bytes_mock,
+            patch(
+                "bots.tg.handlers.route_image_message",
+                AsyncMock(return_value="图片回答"),
+            ) as route_image_message_mock,
+        ):
+            await handel_receive_picture(update, context)
+
+        is_manga_image_bytes_mock.assert_called_once_with(raw_image)
+        route_image_message_mock.assert_awaited_once()
+        self.assertEqual(route_image_message_mock.await_args.args[:3], ("tg", "42", raw_image))
+        message.reply_text.assert_awaited_once_with("图片回答")
+        message.reply_photo.assert_not_awaited()
+        message.reply_document.assert_not_awaited()
+
+    async def test_handel_receive_picture_asks_before_translating_manga_image(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_photo_update(raw_image, caption="这张图讲什么")
+        context = SimpleNamespace(user_data={})
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
+            patch("bots.tg.handlers.is_manga_image_bytes", return_value=True),
+            patch(
+                "bots.tg.handlers.classify_image_translation_intent",
+                AsyncMock(return_value="unknown"),
+            ) as classify_intent_mock,
+            patch("bots.tg.handlers.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
+            patch("bots.tg.handlers.route_image_message", AsyncMock()) as route_image_message_mock,
+        ):
+            await handel_receive_picture(update, context)
+
+        self.assertEqual(
+            context.user_data[PENDING_COMIC_PHOTO_KEY],
+            {"file_bytes": raw_image, "caption": "这张图讲什么"},
+        )
+        classify_intent_mock.assert_awaited_once_with("这张图讲什么")
+        message.reply_text.assert_awaited_once_with("这张图需要我帮你翻译吗？")
+        translate_image_bytes_mock.assert_not_awaited()
+        route_image_message_mock.assert_not_awaited()
+
+    async def test_handle_text_translates_pending_manga_image(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_text_update("翻译")
+        context = SimpleNamespace(
+            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": ""}}
+        )
+
+        with patch(
+            "bots.tg.handlers.classify_image_translation_intent",
+            AsyncMock(return_value="translate"),
+        ) as classify_intent_mock, patch(
+            "bots.tg.handlers.translate_image_bytes",
+            AsyncMock(return_value=_translated_image_result()),
+        ) as translate_image_bytes_mock:
+            await handle_text(update, context)
+
+        self.assertNotIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
+        classify_intent_mock.assert_awaited_once_with("翻译")
+        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        message.reply_text.assert_not_awaited()
+        message.reply_photo.assert_awaited_once()
+        message.reply_document.assert_awaited_once()
+
+    async def test_handle_text_answers_pending_manga_image_when_llm_detects_skip(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_text_update("不用翻译了啊")
+        context = SimpleNamespace(
+            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": "讲讲画面"}}
+        )
+
+        with patch(
+            "bots.tg.handlers.classify_image_translation_intent",
+            AsyncMock(return_value="skip"),
+        ) as classify_intent_mock, patch(
+            "bots.tg.handlers.route_image_message",
+            AsyncMock(return_value="视觉回答"),
+        ) as route_image_message_mock:
+            await handle_text(update, context)
+
+        self.assertNotIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
+        classify_intent_mock.assert_awaited_once_with("不用翻译了啊")
+        route_image_message_mock.assert_awaited_once()
+        self.assertEqual(route_image_message_mock.await_args.args[:3], ("tg", "42", raw_image))
+        self.assertEqual(route_image_message_mock.await_args.kwargs["prompt"], "讲讲画面")
+        message.reply_text.assert_awaited_once_with("视觉回答")
+
+    async def test_handle_text_asks_intent_again_when_llm_is_unsure(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_text_update("等一下")
+        context = SimpleNamespace(
+            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": ""}}
+        )
+
+        with (
+            patch(
+                "bots.tg.handlers.classify_image_translation_intent",
+                AsyncMock(return_value="unknown"),
+            ) as classify_intent_mock,
+            patch("bots.tg.handlers.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
+            patch("bots.tg.handlers.route_image_message", AsyncMock()) as route_image_message_mock,
+        ):
+            await handle_text(update, context)
+
+        self.assertIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
+        classify_intent_mock.assert_awaited_once_with("等一下")
+        message.reply_text.assert_awaited_once_with("这张图需要我帮你翻译吗？")
+        translate_image_bytes_mock.assert_not_awaited()
+        route_image_message_mock.assert_not_awaited()
+
+    async def test_handle_text_sets_translate_mode_for_image_translation_request(self) -> None:
+        update, message = _build_text_update("我想翻译图片")
         context = SimpleNamespace(user_data={})
 
         with patch(
-            "bots.tg.handlers.translate_image_bytes",
+            "bots.tg.handlers.classify_image_translation_intent",
+            AsyncMock(return_value="translate"),
+        ) as classify_intent_mock, patch(
+            "bots.tg.handlers.route_message",
             AsyncMock(),
-        ) as translate_image_bytes_mock:
+        ) as route_message_mock:
+            await handle_text(update, context)
+
+        self.assertTrue(context.user_data[PENDING_TRANSLATE_PHOTO_KEY])
+        classify_intent_mock.assert_awaited_once_with("我想翻译图片")
+        route_message_mock.assert_not_awaited()
+        message.reply_text.assert_awaited_once_with("请发送要翻译的图片。")
+
+    async def test_handle_text_routes_normal_text_when_llm_finds_no_image_translation_intent(self) -> None:
+        update, message = _build_text_update("你好")
+        context = SimpleNamespace(user_data={})
+
+        with patch(
+            "bots.tg.handlers.classify_image_translation_intent",
+            AsyncMock(return_value="unknown"),
+        ) as classify_intent_mock, patch(
+            "bots.tg.handlers.route_message",
+            AsyncMock(return_value="普通回复"),
+        ) as route_message_mock:
+            await handle_text(update, context)
+
+        classify_intent_mock.assert_awaited_once_with("你好")
+        route_message_mock.assert_awaited_once()
+        self.assertEqual(route_message_mock.await_args.args[:3], ("tg", "42", "你好"))
+        message.reply_text.assert_awaited_once_with("普通回复")
+
+    async def test_handel_receive_picture_translates_when_caption_requests_translation(self) -> None:
+        raw_image = b"raw-image"
+        update, message = _build_photo_update(raw_image, caption="帮我翻译")
+        context = SimpleNamespace(user_data={})
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
+            patch("bots.tg.handlers.is_manga_image_bytes") as is_manga_image_bytes_mock,
+            patch(
+                "bots.tg.handlers.classify_image_translation_intent",
+                AsyncMock(return_value="translate"),
+            ) as classify_intent_mock,
+            patch(
+                "bots.tg.handlers.translate_image_bytes",
+                AsyncMock(return_value=_translated_image_result()),
+            ) as translate_image_bytes_mock,
+        ):
             await handel_receive_picture(update, context)
 
-        translate_image_bytes_mock.assert_not_awaited()
-        message.reply_text.assert_awaited_once_with(
-            "请先发送 /translate，然后再发送漫画图片。"
-        )
+        classify_intent_mock.assert_awaited_once_with("帮我翻译")
+        is_manga_image_bytes_mock.assert_not_called()
+        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        message.reply_photo.assert_awaited_once()
+        message.reply_document.assert_awaited_once()
 
     async def test_unsubscribe_command_requires_target(self) -> None:
         update = SimpleNamespace(
