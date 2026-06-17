@@ -225,7 +225,9 @@ def _upload_translated_image_to_remote(file_name: str, file_bytes: bytes) -> Non
     if not host or not remote_dir:
         raise RuntimeError("MOEGAL_QQ_IMAGE_REMOTE_HOST and MOEGAL_QQ_IMAGE_REMOTE_DIR are required")
 
-    user = (os.getenv("MOEGAL_QQ_IMAGE_REMOTE_USER") or "root").strip()
+    user = (os.getenv("MOEGAL_QQ_IMAGE_REMOTE_USER") or "").strip()
+    if not user:
+        raise RuntimeError("MOEGAL_QQ_IMAGE_REMOTE_USER is required")
     password = os.getenv("MOEGAL_QQ_IMAGE_REMOTE_PASSWORD")
     key_filename = (os.getenv("MOEGAL_QQ_IMAGE_REMOTE_KEY_FILE") or "").strip() or None
     port = int((os.getenv("MOEGAL_QQ_IMAGE_REMOTE_PORT") or "22").strip())

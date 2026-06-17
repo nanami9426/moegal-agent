@@ -43,13 +43,13 @@ QQ_BOT_SK=
 - `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
 - `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
 - `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
-- `MOEGAL_PUBLIC_ASSET_BASE_URL`：QQ 图片回图必需。翻译后图片的公开静态资源地址，例如 `http://8.134.160.149/moegal-qq`。
+- `MOEGAL_PUBLIC_ASSET_BASE_URL`：QQ 图片回图必需。翻译后图片的公开静态资源地址，例如 `https://static.example.com/moegal-qq`。
 - `MOEGAL_QQ_IMAGE_REMOTE_HOST`：QQ 图片回图必需。SFTP 上传目标主机。
 - `MOEGAL_QQ_IMAGE_REMOTE_PORT`：远端 SSH 端口，默认 `22`。
-- `MOEGAL_QQ_IMAGE_REMOTE_USER`：远端 SSH 用户，默认 `root`。
+- `MOEGAL_QQ_IMAGE_REMOTE_USER`：QQ 图片回图必需。远端 SSH 用户。
 - `MOEGAL_QQ_IMAGE_REMOTE_KEY_FILE`：推荐配置。远端 SSH 私钥路径，优先用于 SFTP 上传。
 - `MOEGAL_QQ_IMAGE_REMOTE_PASSWORD`：未配置私钥时使用的远端 SSH 密码。不建议提交或写入版本库。
-- `MOEGAL_QQ_IMAGE_REMOTE_DIR`：QQ 图片回图必需。远端 nginx 静态目录，例如 `/usr/local/nginx/html/moegal-qq/image`。
+- `MOEGAL_QQ_IMAGE_REMOTE_DIR`：QQ 图片回图必需。远端 nginx 静态目录，例如 `/path/to/nginx/html/moegal-qq/image`。
 
 ## 内容源
 
@@ -90,12 +90,12 @@ RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-comp
 QQ 发送图片需要一个 QQ 服务器可访问的公网 URL。当前使用远程上传方式：本地 bot 生成图片，通过 SFTP 上传到云服务器 nginx 静态目录，然后把公网 URL 发给 QQ。推荐配置如下：
 
 ```env
-MOEGAL_PUBLIC_ASSET_BASE_URL=http://8.134.160.149/moegal-qq
-MOEGAL_QQ_IMAGE_REMOTE_HOST=8.134.160.149
+MOEGAL_PUBLIC_ASSET_BASE_URL=https://static.example.com/moegal-qq
+MOEGAL_QQ_IMAGE_REMOTE_HOST=example.com
 MOEGAL_QQ_IMAGE_REMOTE_PORT=22
-MOEGAL_QQ_IMAGE_REMOTE_USER=root
-MOEGAL_QQ_IMAGE_REMOTE_KEY_FILE=/home/zws/vv/moegal-agent/.secrets/moegal_qq_image_upload
-MOEGAL_QQ_IMAGE_REMOTE_DIR=/usr/local/nginx/html/moegal-qq/image
+MOEGAL_QQ_IMAGE_REMOTE_USER=deploy
+MOEGAL_QQ_IMAGE_REMOTE_KEY_FILE=/absolute/path/to/.secrets/moegal_qq_image_upload
+MOEGAL_QQ_IMAGE_REMOTE_DIR=/path/to/nginx/html/moegal-qq/image
 ```
 
 本地需要准备 SSH key：
@@ -106,23 +106,23 @@ ssh-keygen -t ed25519 -N '' -f .secrets/moegal_qq_image_upload -C moegal-qq-imag
 chmod 600 .secrets/moegal_qq_image_upload
 ```
 
-把 `.secrets/moegal_qq_image_upload.pub` 的内容追加到云服务器 `/root/.ssh/authorized_keys`。服务器侧目录准备：
+把 `.secrets/moegal_qq_image_upload.pub` 的内容追加到云服务器对应用户的 `~/.ssh/authorized_keys`。服务器侧目录准备：
 
 ```bash
-mkdir -p /usr/local/nginx/html/moegal-qq/image
-chmod 755 /usr/local/nginx/html/moegal-qq /usr/local/nginx/html/moegal-qq/image
+mkdir -p /path/to/nginx/html/moegal-qq/image
+chmod 755 /path/to/nginx/html/moegal-qq /path/to/nginx/html/moegal-qq/image
 ```
 
-当前这台云服务器 nginx 已有 80 端口静态根目录 `/usr/local/nginx/html`，所以不需要额外修改 `/usr/local/nginx/conf/nginx.conf`。如果换服务器，需要确保公网能访问：
+需要确保 nginx 或其他静态服务能把该目录暴露到 `MOEGAL_PUBLIC_ASSET_BASE_URL` 下。公网最终应能访问：
 
 ```text
-http://8.134.160.149/moegal-qq/image/<文件名>
+https://static.example.com/moegal-qq/image/<文件名>
 ```
 
 验证上传链路：
 
 ```bash
-ssh -i .secrets/moegal_qq_image_upload -o BatchMode=yes root@8.134.160.149 'echo key-ok'
+ssh -i .secrets/moegal_qq_image_upload -o BatchMode=yes deploy@example.com 'echo key-ok'
 
 set -a; source .env; set +a
 uv run python - <<'PY'
@@ -134,9 +134,9 @@ url = _save_public_translated_image(
 print(url)
 PY
 
-curl -fsS http://8.134.160.149/moegal-qq/image/upload-test.txt
-ssh -i .secrets/moegal_qq_image_upload root@8.134.160.149 \
-  'rm -f /usr/local/nginx/html/moegal-qq/image/upload-test.txt'
+curl -fsS https://static.example.com/moegal-qq/image/upload-test.txt
+ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
+  'rm -f /path/to/nginx/html/moegal-qq/image/upload-test.txt'
 ```
 
 ## Telegram 命令

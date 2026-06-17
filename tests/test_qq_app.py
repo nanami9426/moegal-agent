@@ -45,10 +45,10 @@ def _client() -> QQClient:
 def _remote_upload_env(base_url: str = "https://static.example.com/moegal-qq") -> dict[str, str]:
     return {
         "MOEGAL_PUBLIC_ASSET_BASE_URL": base_url,
-        "MOEGAL_QQ_IMAGE_REMOTE_HOST": "8.134.160.149",
-        "MOEGAL_QQ_IMAGE_REMOTE_USER": "root",
+        "MOEGAL_QQ_IMAGE_REMOTE_HOST": "example.com",
+        "MOEGAL_QQ_IMAGE_REMOTE_USER": "deploy",
         "MOEGAL_QQ_IMAGE_REMOTE_PASSWORD": "secret",
-        "MOEGAL_QQ_IMAGE_REMOTE_DIR": "/usr/local/nginx/html/moegal-qq/image",
+        "MOEGAL_QQ_IMAGE_REMOTE_DIR": "/path/to/nginx/html/moegal-qq/image",
     }
 
 
@@ -303,7 +303,7 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
             os.environ,
-            _remote_upload_env("http://8.134.160.149/moegal-qq"),
+            _remote_upload_env("https://static.example.com/moegal-qq"),
         ), patch("bots.qq.app.QQ_TRANSLATED_IMAGES_DIR", Path(tmpdir)), patch(
             "bots.qq.app._download_image_attachment",
             AsyncMock(return_value=b"raw-image"),
@@ -322,7 +322,7 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
         client.api.post_c2c_file.assert_awaited_once_with(
             "openid-1",
             file_type=1,
-            url="http://8.134.160.149/moegal-qq/image/translated_uuid.png",
+            url="https://static.example.com/moegal-qq/image/translated_uuid.png",
             srv_send_msg=False,
         )
         message.reply.assert_awaited_once_with(msg_type=7, media={"file_info": "media"})
