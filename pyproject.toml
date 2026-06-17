@@ -15,6 +15,7 @@ dependencies = [
     "manga-ocr>=0.1.14",
     "numpy>=2.4.6",
     "opencv-python>=4.13.0.92",
+    "paramiko>=3.5",
     "pillow>=12.2.0",
     "psycopg[binary]>=3.3.4",
     "python-telegram-bot>=22.7",

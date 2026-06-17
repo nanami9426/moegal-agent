@@ -98,6 +98,8 @@ def setup_logging() -> logging.Logger:
     root_logger.addHandler(app_file_handler)
     root_logger.addHandler(console_handler)
 
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+
     return logging.getLogger(__name__)
 
 

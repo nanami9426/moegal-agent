@@ -1,6 +1,5 @@
 # ========== Telegram Handlers ==========
 import asyncio
-import base64
 from io import BytesIO
 
 from telegram import Update
@@ -9,18 +8,18 @@ from telegram.ext import (
 )
 
 from agent.router import (
-    classify_image_translation_intent,
-    route_image_message,
     route_message,
     start_new_conversation_context,
 )
 from config.paths import TG_SAVED_PICTURES_DIR
 from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
-from services.manga_translate.translate import (
-    TranslateInputError,
-    is_manga_image_bytes,
-    translate_image_bytes,
+from services.image_workflow import (
+    ImageWorkflowResult,
+    PendingImage,
+    TranslatedImage,
+    handle_incoming_image,
+    handle_pending_image_reply,
 )
 from services.rss_pipeline.digest import mark_deliveries_sent, prepare_daily_digest
 from utils.logger import logger
@@ -39,66 +38,23 @@ def _telegram_display_name(user) -> str | None:
     return display_name or getattr(user, "username", None)
 
 
-async def _classify_image_translation_intent(text: str) -> str:
-    if not text.strip():
-        return "unknown"
-
-    try:
-        return await classify_image_translation_intent(text)
-    except Exception:
-        logger.exception("Telegram image translation intent classification failed")
-        return "unknown"
-
-
-async def _send_translated_image(message, file_bytes: bytes) -> None:
-    try:
-        _, _, translated_image = await translate_image_bytes(file_bytes, include_res_img=True)
-    except TranslateInputError as exc:
-        await message.reply_text(exc.message)
-        return
-    except Exception:
-        logger.exception("Telegram picture translation failed")
-        await message.reply_text("图片处理失败，请稍后再试。")
-        return
-
-    if translated_image is None:
-        await message.reply_text("未检测出文字")
-        return
-
-    b64_img, file_name = translated_image
-    translated_photo = BytesIO(base64.b64decode(b64_img))
-    translated_photo.name = file_name
+async def _send_translated_image(message, translated_image: TranslatedImage) -> None:
+    translated_photo = BytesIO(translated_image.file_bytes)
+    translated_photo.name = translated_image.file_name
     await message.reply_photo(photo=translated_photo, caption="翻译后的图片")
     translated_photo.seek(0)
     await message.reply_document(document=translated_photo, caption="翻译后的图片")
 
 
-async def _reply_with_image_answer(
+async def _reply_with_image_workflow_result(
     message,
-    user,
-    file_bytes: bytes,
-    caption: str | None = None,
+    result: ImageWorkflowResult,
 ) -> None:
-    if user is None:
-        await message.reply_text("无法识别当前用户，请稍后再试。")
+    if result.action == "translated_image" and result.translated_image is not None:
+        await _send_translated_image(message, result.translated_image)
         return
 
-    try:
-        result = await route_image_message(
-            "tg",
-            str(user.id),
-            file_bytes,
-            prompt=caption,
-            username=getattr(user, "username", None),
-            display_name=_telegram_display_name(user),
-            language_code=getattr(user, "language_code", None),
-        )
-    except Exception:
-        logger.exception("Telegram picture understanding failed")
-        await message.reply_text("图片理解失败，请稍后再试。")
-        return
-
-    await message.reply_text(result)
+    await message.reply_text(result.text or "我现在没有生成可发送的回复。")
 
 
 async def _download_largest_photo(message) -> bytes:
@@ -278,23 +234,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     pending_comic_photo = context.user_data.get(PENDING_COMIC_PHOTO_KEY)
     if pending_comic_photo is not None:
-        intent = await _classify_image_translation_intent(text)
-        if intent == "translate":
-            context.user_data.pop(PENDING_COMIC_PHOTO_KEY, None)
-            await _send_translated_image(update.message, pending_comic_photo["file_bytes"])
-            return
+        result = await handle_pending_image_reply(
+            "tg",
+            str(user.id),
+            pending_comic_photo,
+            text,
+            username=user.username,
+            display_name=_telegram_display_name(user),
+            language_code=user.language_code,
+            platform_label="Telegram",
+        )
 
-        if intent == "skip":
+        if result.action == "ask_translate":
+            context.user_data[PENDING_COMIC_PHOTO_KEY] = result.pending_image
+        else:
             context.user_data.pop(PENDING_COMIC_PHOTO_KEY, None)
-            await _reply_with_image_answer(
-                update.message,
-                user,
-                pending_comic_photo["file_bytes"],
-                pending_comic_photo.get("caption"),
-            )
-            return
 
-        await update.message.reply_text("这张图需要我帮你翻译吗？")
+        await _reply_with_image_workflow_result(update.message, result)
         return
 
     result = await route_message(
@@ -320,33 +276,35 @@ async def handel_receive_picture(update: Update, context: ContextTypes.DEFAULT_T
         await message.reply_text("图片下载失败，请稍后再试。")
         return
 
-    should_translate = bool(context.user_data.pop(PENDING_TRANSLATE_PHOTO_KEY, None))
-    if not should_translate and caption:
-        should_translate = await _classify_image_translation_intent(caption) == "translate"
-    if should_translate:
+    force_translate = bool(context.user_data.pop(PENDING_TRANSLATE_PHOTO_KEY, None))
+    if force_translate:
         context.user_data.pop(PENDING_COMIC_PHOTO_KEY, None)
-        await _send_translated_image(message, file_bytes)
+
+    if user is None:
+        await message.reply_text("无法识别当前用户，请稍后再试。")
         return
 
-    try:
-        is_manga = await asyncio.to_thread(is_manga_image_bytes, file_bytes)
-    except TranslateInputError as exc:
-        await message.reply_text(exc.message)
-        return
-    except Exception:
-        logger.exception("Telegram comic detection failed; falling back to image answer")
-        await _reply_with_image_answer(message, user, file_bytes, caption)
-        return
+    result = await handle_incoming_image(
+        "tg",
+        str(user.id),
+        file_bytes,
+        caption=caption,
+        force_translate=force_translate,
+        username=getattr(user, "username", None),
+        display_name=_telegram_display_name(user),
+        language_code=getattr(user, "language_code", None),
+        platform_label="Telegram",
+    )
 
-    if is_manga:
-        context.user_data[PENDING_COMIC_PHOTO_KEY] = {
-            "file_bytes": file_bytes,
-            "caption": caption,
-        }
-        await message.reply_text("这张图需要我帮你翻译吗？")
-        return
+    if result.action == "ask_translate":
+        context.user_data[PENDING_COMIC_PHOTO_KEY] = result.pending_image or PendingImage(
+            file_bytes=file_bytes,
+            caption=caption,
+        )
+    else:
+        context.user_data.pop(PENDING_COMIC_PHOTO_KEY, None)
 
-    await _reply_with_image_answer(message, user, file_bytes, caption)
+    await _reply_with_image_workflow_result(message, result)
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

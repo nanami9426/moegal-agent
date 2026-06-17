@@ -14,6 +14,7 @@ from bots.tg.handlers import (
     translate_command,
     unsubscribe_command,
 )
+from services.image_workflow import PendingImage
 
 
 def _user() -> SimpleNamespace:
@@ -90,9 +91,9 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
-            patch("bots.tg.handlers.is_manga_image_bytes") as is_manga_image_bytes_mock,
+            patch("services.image_workflow.is_manga_image_bytes") as is_manga_image_bytes_mock,
             patch(
-                "bots.tg.handlers.translate_image_bytes",
+                "services.image_workflow.translate_image_bytes",
                 AsyncMock(return_value=_translated_image_result()),
             ) as translate_image_bytes_mock,
         ):
@@ -122,9 +123,9 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
-            patch("bots.tg.handlers.is_manga_image_bytes", return_value=False) as is_manga_image_bytes_mock,
+            patch("services.image_workflow.is_manga_image_bytes", return_value=False) as is_manga_image_bytes_mock,
             patch(
-                "bots.tg.handlers.route_image_message",
+                "services.image_workflow.route_image_message",
                 AsyncMock(return_value="图片回答"),
             ) as route_image_message_mock,
         ):
@@ -145,19 +146,19 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
-            patch("bots.tg.handlers.is_manga_image_bytes", return_value=True),
+            patch("services.image_workflow.is_manga_image_bytes", return_value=True),
             patch(
-                "bots.tg.handlers.classify_image_translation_intent",
+                "services.image_workflow.classify_image_translation_intent",
                 AsyncMock(return_value="unknown"),
             ) as classify_intent_mock,
-            patch("bots.tg.handlers.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
-            patch("bots.tg.handlers.route_image_message", AsyncMock()) as route_image_message_mock,
+            patch("services.image_workflow.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
+            patch("services.image_workflow.route_image_message", AsyncMock()) as route_image_message_mock,
         ):
             await handel_receive_picture(update, context)
 
         self.assertEqual(
             context.user_data[PENDING_COMIC_PHOTO_KEY],
-            {"file_bytes": raw_image, "caption": "这张图讲什么"},
+            PendingImage(file_bytes=raw_image, caption="这张图讲什么"),
         )
         classify_intent_mock.assert_awaited_once_with("这张图讲什么")
         message.reply_text.assert_awaited_once_with("这张图需要我帮你翻译吗？")
@@ -168,14 +169,14 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         raw_image = b"raw-image"
         update, message = _build_text_update("翻译")
         context = SimpleNamespace(
-            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": ""}}
+            user_data={PENDING_COMIC_PHOTO_KEY: PendingImage(file_bytes=raw_image, caption="")}
         )
 
         with patch(
-            "bots.tg.handlers.classify_image_translation_intent",
+            "services.image_workflow.classify_image_translation_intent",
             AsyncMock(return_value="translate"),
         ) as classify_intent_mock, patch(
-            "bots.tg.handlers.translate_image_bytes",
+            "services.image_workflow.translate_image_bytes",
             AsyncMock(return_value=_translated_image_result()),
         ) as translate_image_bytes_mock:
             await handle_text(update, context)
@@ -191,14 +192,14 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         raw_image = b"raw-image"
         update, message = _build_text_update("不用翻译了啊")
         context = SimpleNamespace(
-            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": "讲讲画面"}}
+            user_data={PENDING_COMIC_PHOTO_KEY: PendingImage(file_bytes=raw_image, caption="讲讲画面")}
         )
 
         with patch(
-            "bots.tg.handlers.classify_image_translation_intent",
+            "services.image_workflow.classify_image_translation_intent",
             AsyncMock(return_value="skip"),
         ) as classify_intent_mock, patch(
-            "bots.tg.handlers.route_image_message",
+            "services.image_workflow.route_image_message",
             AsyncMock(return_value="视觉回答"),
         ) as route_image_message_mock:
             await handle_text(update, context)
@@ -214,16 +215,16 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         raw_image = b"raw-image"
         update, message = _build_text_update("等一下")
         context = SimpleNamespace(
-            user_data={PENDING_COMIC_PHOTO_KEY: {"file_bytes": raw_image, "caption": ""}}
+            user_data={PENDING_COMIC_PHOTO_KEY: PendingImage(file_bytes=raw_image, caption="")}
         )
 
         with (
             patch(
-                "bots.tg.handlers.classify_image_translation_intent",
+                "services.image_workflow.classify_image_translation_intent",
                 AsyncMock(return_value="unknown"),
             ) as classify_intent_mock,
-            patch("bots.tg.handlers.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
-            patch("bots.tg.handlers.route_image_message", AsyncMock()) as route_image_message_mock,
+            patch("services.image_workflow.translate_image_bytes", AsyncMock()) as translate_image_bytes_mock,
+            patch("services.image_workflow.route_image_message", AsyncMock()) as route_image_message_mock,
         ):
             await handle_text(update, context)
 
@@ -238,7 +239,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(user_data={})
 
         with patch(
-            "bots.tg.handlers.classify_image_translation_intent",
+            "services.image_workflow.classify_image_translation_intent",
             AsyncMock(),
         ) as classify_intent_mock, patch(
             "bots.tg.handlers.route_message",
@@ -260,13 +261,13 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("bots.tg.handlers.TG_SAVED_PICTURES_DIR", Path(tmpdir)),
-            patch("bots.tg.handlers.is_manga_image_bytes") as is_manga_image_bytes_mock,
+            patch("services.image_workflow.is_manga_image_bytes") as is_manga_image_bytes_mock,
             patch(
-                "bots.tg.handlers.classify_image_translation_intent",
+                "services.image_workflow.classify_image_translation_intent",
                 AsyncMock(return_value="translate"),
             ) as classify_intent_mock,
             patch(
-                "bots.tg.handlers.translate_image_bytes",
+                "services.image_workflow.translate_image_bytes",
                 AsyncMock(return_value=_translated_image_result()),
             ) as translate_image_bytes_mock,
         ):
