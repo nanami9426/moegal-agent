@@ -1,6 +1,6 @@
 package main
 
-import "github.com/nanami9426/moegal-agent/gateway/middlewares"
+import "github.com/nanami9426/moegal-agent/gateway/router"
 
 func main() {
 	r := middlewares.Router()
