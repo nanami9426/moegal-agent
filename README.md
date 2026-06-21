@@ -26,6 +26,8 @@ TELEGRAM_BOT_TOKEN=
 DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/moegal
 OPENAI_API_KEY=
 MOEGAL_MODEL=
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+MOEGAL_LLM_GATEWAY_BASE_URL=http://127.0.0.1:9426/v1
 
 MOEGAL_RSSHUB_BASE_URL=http://127.0.0.1:1200
 MOEGAL_RSSHUB_ACCESS_KEY=moegal_rsshub
@@ -38,7 +40,8 @@ QQ_BOT_SK=
 
 可选配置：
 
-- `OPENAI_BASE_URL`：使用 OpenAI 兼容服务时配置。
+- `OPENAI_BASE_URL`：上游 OpenAI 兼容服务地址。启动 Go gateway 时，gateway 会用它转发请求。
+- `MOEGAL_LLM_GATEWAY_BASE_URL`：Python 侧连接本地 Go gateway 的地址；未配置时 Python 会直接使用 `OPENAI_BASE_URL`。
 - `MOEGAL_RSSHUB_BASE_URL`：RSSHub 访问地址，默认 `http://127.0.0.1:1200`。
 - `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
 - `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
@@ -74,6 +77,21 @@ uv sync
 
 ```bash
 uv run python main.py
+```
+
+如果要通过 Go gateway 转发 LLM 请求，可以用脚本同时启动 gateway 和 Python 项目：
+
+```bash
+./scripts/start_with_gateway.sh
+```
+
+脚本只负责读取 `.env`、后台启动本地 gateway、再启动 Python 项目。Python 是否连接
+gateway 由 `.env` 中的 `MOEGAL_LLM_GATEWAY_BASE_URL` 决定。传给脚本的参数会原样传给
+`main.py`，例如：
+
+```bash
+./scripts/start_with_gateway.sh --bot qq
+./scripts/start_with_gateway.sh --bot qq,tg
 ```
 
 默认会同时启动 QQ 和 Telegram。也可以通过 `--bot` 指定要启动的机器人：

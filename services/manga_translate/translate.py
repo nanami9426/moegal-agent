@@ -13,6 +13,7 @@ from PIL import Image
 
 from services.manga_translate.ocr import get_det_model
 from services.manga_translate.pic_process import TextDirection, draw_text_on_boxes, get_text_masked_pic, save_img
+from utils.llm import get_base_url
 from utils.logger import logger
 
 TRANSLATE_SYSTEM_PROMPT = (
@@ -46,7 +47,7 @@ def get_translate_model():
     return ChatOpenAI(
         model=os.getenv("MOEGAL_MODEL"),
         api_key=api_key,
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        base_url=get_base_url(),
         temperature=0.2,
     )
 

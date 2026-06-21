@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_openai import ChatOpenAI
 
 from agent.graph import chat_graph
+from utils.llm import get_base_url
 
 
 _context_versions: dict[str, int] = {}
@@ -85,7 +86,7 @@ def _get_image_model() -> Any:
     return ChatOpenAI(
         model=os.getenv("MOEGAL_MODEL"),
         api_key=api_key,
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        base_url=get_base_url(),
         temperature=0.6,
     )
 
@@ -99,7 +100,7 @@ def _get_intent_model() -> Any:
     return ChatOpenAI(
         model=os.getenv("MOEGAL_MODEL"),
         api_key=api_key,
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        base_url=get_base_url(),
         temperature=0,
     )
 

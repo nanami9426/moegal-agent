@@ -1,4 +1,5 @@
 import base64
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -89,6 +90,30 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "图片为空，无法识别。")
         get_model_mock.assert_not_called()
+
+    def test_image_model_prefers_gateway_base_url(self) -> None:
+        router._get_image_model.cache_clear()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "MOEGAL_MODEL": "test-model",
+                    "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "MOEGAL_LLM_GATEWAY_BASE_URL": "http://127.0.0.1:9426/v1",
+                },
+            ),
+            patch.object(router, "ChatOpenAI", return_value=SimpleNamespace()) as chat_openai,
+        ):
+            router._get_image_model()
+
+        router._get_image_model.cache_clear()
+        chat_openai.assert_called_once_with(
+            model="test-model",
+            api_key="test-key",
+            base_url="http://127.0.0.1:9426/v1",
+            temperature=0.6,
+        )
 
     async def test_classify_image_translation_intent_uses_llm_label(self) -> None:
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="skip")))

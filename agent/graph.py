@@ -11,6 +11,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from agent.state import MoegalState
 from agent.tools import TOOLS
 from services.account.users import upsert_user
+from utils.llm import get_base_url
 
 
 SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。
@@ -39,7 +40,7 @@ def _get_model_with_tools() -> Any:
     model = ChatOpenAI(
         model=os.getenv("MOEGAL_MODEL"),
         api_key=api_key,
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        base_url=get_base_url(),
         temperature=0.6,
     )
     return model.bind_tools(TOOLS)
@@ -73,5 +74,3 @@ def build_chat_graph():
 
 
 chat_graph = build_chat_graph()
-
-
