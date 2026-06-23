@@ -134,14 +134,31 @@ class MediaAsset(SQLModel, table=True):
 
 class Conversation(SQLModel, table=True):
     __tablename__ = "conversations"
+    __table_args__ = (
+        # thread_id 直接对应 LangGraph checkpoint 的会话隔离键，新会话使用随机 UUID。
+        UniqueConstraint("thread_id", name="uq_conversations_thread_id"),
+        # 同一平台用户的每个对话版本只允许存在一条记录。
+        UniqueConstraint(
+            "platform",
+            "platform_user_id",
+            "version",
+            name="uq_conversations_platform_user_version",
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(
         sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
     )
     platform: str = Field(index=True, max_length=32)
+    platform_user_id: str = Field(index=True, max_length=128)
+    thread_id: str = Field(index=True, max_length=255)
+    # version 只做业务会话序号；实际 checkpoint 隔离依赖 UUID thread_id。
+    version: int = Field(default=0, index=True, nullable=False)
+    is_active: bool = Field(default=True, index=True, nullable=False)
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+    ended_at: datetime | None = Field(default=None)
 
 
 class Message(SQLModel, table=True):

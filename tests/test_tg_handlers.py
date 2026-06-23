@@ -341,7 +341,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "bots.tg.handlers.start_new_conversation_context",
-            return_value="tg:42:v1",
+            return_value="00000000-0000-4000-8000-000000000001",
         ) as start_new_context_mock:
             await newchat_command(update, context)
 

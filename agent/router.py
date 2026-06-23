@@ -1,18 +1,21 @@
 import base64
 import os
 from functools import lru_cache
-from threading import Lock
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from agent.graph import chat_graph
+from agent.graph import get_chat_graph
+from services.account.conversations import (
+    append_message,
+    get_or_create_active_conversation,
+    start_new_conversation,
+)
+from services.account.users import upsert_user
 from utils.llm import get_base_url
 
 
-_context_versions: dict[str, int] = {}
-_context_versions_lock = Lock()
 IMAGE_SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。
 你可以理解图片内容。用简短、自然的中文回答，优先回应用户随图提出的问题。"""
 DEFAULT_IMAGE_PROMPT = "请用简短、自然的中文描述这张图片，并回答用户可能想知道的重点。"
@@ -31,23 +34,28 @@ IMAGE_TRANSLATION_INTENT_SYSTEM_PROMPT = """你是一个严格的意图分类器
 """
 
 
-def _conversation_key(platform: str, platform_user_id: str) -> str:
-    return f"{platform}:{platform_user_id}"
-
-
-def _thread_id(platform: str, platform_user_id: str) -> str:
-    key = _conversation_key(platform, platform_user_id)
-    with _context_versions_lock:
-        version = _context_versions.get(key, 0)
-    return f"{key}:v{version}"
-
-
-def start_new_conversation_context(platform: str, platform_user_id: str) -> str:
-    key = _conversation_key(platform, platform_user_id)
-    with _context_versions_lock:
-        version = _context_versions.get(key, 0) + 1
-        _context_versions[key] = version
-    return f"{key}:v{version}"
+def start_new_conversation_context(
+    platform: str,
+    platform_user_id: str,
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+    language_code: str | None = None,
+) -> str:
+    # /newchat 会生成新的会话版本，旧版本仍保留在数据库中用于追溯。
+    user = upsert_user(
+        platform=platform,
+        platform_user_id=platform_user_id,
+        username=username,
+        display_name=display_name,
+        language_code=language_code,
+    )
+    conversation = start_new_conversation(
+        user_id=user.id,
+        platform=platform,
+        platform_user_id=platform_user_id,
+    )
+    return conversation.thread_id
 
 
 def _content_to_text(content: str | list[Any]) -> str:
@@ -119,20 +127,59 @@ async def route_message(
     if not text:
         return "你可以发送文本。"
 
+    # 先确保平台用户存在，再用 active conversation 的 thread_id 续接上下文。
+    user = upsert_user(
+        platform=platform,
+        platform_user_id=platform_user_id,
+        username=username,
+        display_name=display_name,
+        language_code=language_code,
+    )
+    conversation = get_or_create_active_conversation(
+        user_id=user.id,
+        platform=platform,
+        platform_user_id=platform_user_id,
+    )
+    # messages 表保存可读聊天日志；LangGraph checkpoint 负责模型上下文恢复。
+    append_message(
+        conversation_id=conversation.id,
+        role="user",
+        content=text,
+        metadata_json={
+            "platform": platform,
+            "platform_user_id": platform_user_id,
+            "thread_id": conversation.thread_id,
+        },
+    )
+
+    chat_graph = await get_chat_graph()
+    # thread_id 是 LangGraph 读取/写入 checkpoint 的会话隔离键。
     result = await chat_graph.ainvoke(
         {
             "messages": [HumanMessage(content=text)],
             "platform": platform,
             "platform_user_id": platform_user_id,
-            "user_id": None,
+            "user_id": user.id,
             "username": username,
             "display_name": display_name,
             "language_code": language_code,
         },
-        config={"configurable": {"thread_id": _thread_id(platform, platform_user_id)}},
+        config={"configurable": {"thread_id": conversation.thread_id}},
     )
 
-    return extract_final_text(result["messages"])
+    reply_text = extract_final_text(result["messages"])
+    # 只记录最终要发给用户的助手回复，不把中间 tool call 展示为聊天记录。
+    append_message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=reply_text,
+        metadata_json={
+            "platform": platform,
+            "platform_user_id": platform_user_id,
+            "thread_id": conversation.thread_id,
+        },
+    )
+    return reply_text
 
 
 async def route_image_message(

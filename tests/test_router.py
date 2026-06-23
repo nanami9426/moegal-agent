@@ -10,49 +10,100 @@ from agent import router
 
 
 class RouterContextTest(unittest.IsolatedAsyncioTestCase):
-    def setUp(self) -> None:
-        with router._context_versions_lock:
-            router._context_versions.clear()
-
-    async def test_route_message_uses_versioned_thread_id(self) -> None:
+    async def test_route_message_uses_conversation_thread_id(self) -> None:
         graph = SimpleNamespace(
             ainvoke=AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
         )
+        first_thread_id = "00000000-0000-4000-8000-000000000001"
+        second_thread_id = "00000000-0000-4000-8000-000000000002"
 
-        with patch.object(router, "chat_graph", graph):
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1001)),
+            patch.object(
+                router,
+                "get_or_create_active_conversation",
+                side_effect=[
+                    SimpleNamespace(id=1, thread_id=first_thread_id),
+                    SimpleNamespace(id=2, thread_id=second_thread_id),
+                ],
+            ),
+            patch.object(
+                router,
+                "start_new_conversation",
+                return_value=SimpleNamespace(id=2, thread_id=second_thread_id),
+            ),
+            patch.object(router, "append_message"),
+            patch.object(router, "get_chat_graph", AsyncMock(return_value=graph)),
+        ):
             first = await router.route_message("tg", "42", "你好")
             new_thread_id = router.start_new_conversation_context("tg", "42")
             second = await router.route_message("tg", "42", "继续")
 
         self.assertEqual(first, "ok")
         self.assertEqual(second, "ok")
-        self.assertEqual(new_thread_id, "tg:42:v1")
+        self.assertEqual(new_thread_id, second_thread_id)
         self.assertEqual(
             graph.ainvoke.await_args_list[0].kwargs["config"],
-            {"configurable": {"thread_id": "tg:42:v0"}},
+            {"configurable": {"thread_id": first_thread_id}},
         )
         self.assertEqual(
             graph.ainvoke.await_args_list[1].kwargs["config"],
-            {"configurable": {"thread_id": "tg:42:v1"}},
+            {"configurable": {"thread_id": second_thread_id}},
         )
 
-    async def test_context_versions_are_scoped_per_user(self) -> None:
+    async def test_conversation_thread_ids_are_scoped_per_user(self) -> None:
         graph = SimpleNamespace(
             ainvoke=AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
         )
+        thread_ids: dict[str, str] = {}
 
-        with patch.object(router, "chat_graph", graph):
+        def start_new_conversation_side_effect(**kwargs):
+            platform_user_id = kwargs["platform_user_id"]
+            thread_ids[platform_user_id] = (
+                "00000000-0000-4000-8000-000000000101"
+            )
+            return SimpleNamespace(
+                id=10,
+                thread_id=thread_ids[platform_user_id],
+            )
+
+        def get_conversation_side_effect(**kwargs):
+            platform_user_id = kwargs["platform_user_id"]
+            thread_id = thread_ids.get(
+                platform_user_id,
+                "00000000-0000-4000-8000-000000000099",
+            )
+            return SimpleNamespace(
+                id=20,
+                thread_id=thread_id,
+            )
+
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1001)),
+            patch.object(
+                router,
+                "start_new_conversation",
+                side_effect=start_new_conversation_side_effect,
+            ),
+            patch.object(
+                router,
+                "get_or_create_active_conversation",
+                side_effect=get_conversation_side_effect,
+            ),
+            patch.object(router, "append_message"),
+            patch.object(router, "get_chat_graph", AsyncMock(return_value=graph)),
+        ):
             router.start_new_conversation_context("tg", "42")
             await router.route_message("tg", "42", "你好")
             await router.route_message("tg", "99", "你好")
 
         self.assertEqual(
             graph.ainvoke.await_args_list[0].kwargs["config"],
-            {"configurable": {"thread_id": "tg:42:v1"}},
+            {"configurable": {"thread_id": "00000000-0000-4000-8000-000000000101"}},
         )
         self.assertEqual(
             graph.ainvoke.await_args_list[1].kwargs["config"],
-            {"configurable": {"thread_id": "tg:99:v0"}},
+            {"configurable": {"thread_id": "00000000-0000-4000-8000-000000000099"}},
         )
 
     async def test_route_image_message_builds_multimodal_message(self) -> None:

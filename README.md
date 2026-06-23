@@ -171,6 +171,13 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 普通图片会进入多模态理解；漫画图片会先询问是否翻译，用户表达要翻译后发送翻译图，表达不用翻译则按普通图片回答。
 如果先发送 `/translate`，下一张图片会直接翻译；如果发送图片时说明要翻译，也会直接翻译当前图片。
 
+## 对话持久化
+
+普通文本对话上下文通过 LangGraph PostgreSQL checkpoint 保存到 `DATABASE_URL` 指向的数据库中，进程重启后会继续使用当前活跃会话的上下文。
+`conversations` 表保存每个平台用户的会话版本和当前活跃会话；`thread_id` 使用随机 UUID，并作为 LangGraph checkpoint 的会话隔离键。
+`messages` 表保存用户输入和最终助手回复，方便后续查询聊天记录。
+执行 `/newchat` 会结束当前活跃会话并创建新的会话版本，不会删除旧聊天记录，也不会影响订阅和摘要记录。
+
 ## QQ C2C
 
 - 普通文本会进入 Agent 对话。
