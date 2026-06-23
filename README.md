@@ -181,6 +181,7 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 ## QQ C2C
 
 - 普通文本会进入 Agent 对话。
+- `/newchat`：开启新的对话上下文。
 - `/translate`：提示发送图片，并直接翻译下一张图片。
 - 普通图片会进入多模态理解。
 - 漫画图片会先询问是否翻译；用户表达要翻译后发送翻译图，表达不用翻译则按普通图片回答。

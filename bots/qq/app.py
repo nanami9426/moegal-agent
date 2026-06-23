@@ -13,7 +13,7 @@ from botpy.message import C2CMessage
 
 from config.paths import BOTPY_LOG_PATH, LOG_DIR, QQ_SAVED_PICTURES_DIR, QQ_TRANSLATED_IMAGES_DIR
 from utils.logger import logger
-from agent.router import route_message
+from agent.router import route_message, start_new_conversation_context
 from services.image_workflow import (
     ImageWorkflowResult,
     PendingImage,
@@ -24,9 +24,11 @@ from services.image_workflow import (
 
 
 PENDING_TRANSLATE_COMMAND = "/translate"
+NEWCHAT_COMMAND = "/newchat"
 QQ_IMAGE_DOWNLOAD_FAILED_MESSAGE = "图片下载失败，请稍后再试。"
 QQ_PUBLIC_IMAGE_FAILED_MESSAGE = "翻译后的图片已生成，但发送失败，请检查公开图片地址配置。"
 TRANSLATE_PROMPT_MESSAGE = "请发送要翻译的图片。"
+NEWCHAT_MESSAGE = "已开启新的对话上下文。订阅和摘要记录不会受影响。"
 
 
 class QQClient(botpy.Client):
@@ -68,6 +70,11 @@ class QQClient(botpy.Client):
             self._pending_comic_images.pop(openid, None)
             self._pending_translate_users.add(openid)
             await message.reply(msg_type=0, content=TRANSLATE_PROMPT_MESSAGE)
+            return
+
+        if content == NEWCHAT_COMMAND:
+            start_new_conversation_context("qq", openid)
+            await message.reply(msg_type=0, content=NEWCHAT_MESSAGE)
             return
 
         pending_image = self._pending_comic_images.get(openid)

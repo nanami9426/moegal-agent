@@ -66,6 +66,23 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
         route_message_mock.assert_awaited_once_with("qq", "openid-1", "你好")
         message.reply.assert_awaited_once_with(msg_type=0, content="测试回复：你好")
 
+    async def test_newchat_command_starts_new_context(self) -> None:
+        client = _client()
+        message = _message("/newchat")
+
+        with (
+            patch("bots.qq.app.start_new_conversation_context") as start_new_context_mock,
+            patch("bots.qq.app.route_message", AsyncMock()) as route_message_mock,
+        ):
+            await client.on_c2c_message_create(message)
+
+        start_new_context_mock.assert_called_once_with("qq", "openid-1")
+        route_message_mock.assert_not_awaited()
+        message.reply.assert_awaited_once_with(
+            msg_type=0,
+            content="已开启新的对话上下文。订阅和摘要记录不会受影响。",
+        )
+
     async def test_c2c_image_answers_non_manga_image(self) -> None:
         client = _client()
         message = _message("这是什么", [_attachment()])
