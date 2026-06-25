@@ -49,6 +49,9 @@ func NewLLMProxy(upstreamBaseURL string) (http.Handler, error) {
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "")
 		}
+		// UsageLogger needs the upstream response body to stay inspectable JSON.
+		// Some OpenAI clients advertise gzip/br; avoid compressed upstream bodies here.
+		req.Header.Set("Accept-Encoding", "identity")
 	}
 
 	return proxy, nil

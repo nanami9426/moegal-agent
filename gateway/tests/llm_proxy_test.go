@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
 	"log"
 	"net/http"
@@ -131,6 +132,75 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 	logText := logs.String()
 	for _, want := range []string{
 		"user=user-1",
+		"model=test-model",
+		"prompt_tokens=11",
+		"completion_tokens=7",
+		"total_tokens=18",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Errorf("usage log = %q, want %q", logText, want)
+		}
+	}
+}
+
+func TestUsageLoggerPrintsTokenUsageWhenClientAcceptsCompression(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		responseBody := []byte(`{"id":"chatcmpl-test","model":"test-model","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			w.Header().Set("Content-Encoding", "gzip")
+			gzipWriter := gzip.NewWriter(w)
+			_, _ = gzipWriter.Write(responseBody)
+			_ = gzipWriter.Close()
+			return
+		}
+
+		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
+			t.Errorf("accept-encoding = %q, want identity", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(responseBody)
+	}))
+	defer upstream.Close()
+
+	t.Setenv(service.OpenAIBaseURLEnv, upstream.URL+"/v1")
+
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	gateway := httptest.NewServer(router.Router())
+	defer gateway.Close()
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		gateway.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"test-model","messages":[]}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Encoding", "gzip, deflate, br")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	_, err = io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
 		"model=test-model",
 		"prompt_tokens=11",
 		"completion_tokens=7",
