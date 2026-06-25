@@ -5,11 +5,13 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nanami9426/moegal-agent/gateway/middleware"
 	"github.com/nanami9426/moegal-agent/gateway/service"
 )
 
 func Router() *gin.Engine {
 	r := gin.Default()
+	r.Use(middleware.UsageLogger())
 	r.GET("/healthz", Healthz)
 	registerLLMProxyRoutes(r)
 	return r

@@ -1,7 +1,9 @@
 package tests
 
 import (
+	"bytes"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,6 +80,65 @@ func TestRouterForwardsOpenAICompatibleRequest(t *testing.T) {
 	}
 	if string(responseBody) != `{"ok":true}` {
 		t.Errorf("response body = %s", responseBody)
+	}
+}
+
+func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != `{"model":"test-model","user":"user-1","messages":[]}` {
+			t.Errorf("body = %s", body)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","model":"test-model","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`))
+	}))
+	defer upstream.Close()
+
+	t.Setenv(service.OpenAIBaseURLEnv, upstream.URL+"/v1")
+
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	gateway := httptest.NewServer(router.Router())
+	defer gateway.Close()
+
+	response, err := http.Post(
+		gateway.URL+"/v1/chat/completions",
+		"application/json",
+		strings.NewReader(`{"model":"test-model","user":"user-1","messages":[]}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	_, err = io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		"user=user-1",
+		"model=test-model",
+		"prompt_tokens=11",
+		"completion_tokens=7",
+		"total_tokens=18",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Errorf("usage log = %q, want %q", logText, want)
+		}
 	}
 }
 
