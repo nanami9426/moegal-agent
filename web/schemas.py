@@ -43,6 +43,29 @@ class ChatHistoryResponse(BaseModel):
     conversations: list[ConversationHistory]
 
 
+class PlatformBindingItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    platform: str
+    platform_user_id: str
+    username: str | None
+    display_name: str | None
+    bound_at: datetime
+
+
+class AdminBindingsResponse(BaseModel):
+    bindings: list[PlatformBindingItem]
+    max_per_platform: int
+
+
+class LinkCodeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    expires_at: datetime
+
+
 class WebUserItem(BaseModel):
     id: int
     username: str

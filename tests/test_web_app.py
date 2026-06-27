@@ -1,3 +1,4 @@
+import os
 import unittest
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
 from db.models import Conversation, Message, Subscription, User
+from services.account.bindings import complete_platform_link
 from web.app import create_app
 
 
@@ -24,16 +26,33 @@ class WebApiTest(unittest.TestCase):
 
         self.stack = ExitStack()
         self.stack.enter_context(patch("web.routes.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.account.bindings.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.web_auth.get_engine", return_value=self.engine))
         self.client = TestClient(create_app(init_database=False))
 
     def tearDown(self) -> None:
         self.stack.close()
 
-    def test_subscriptions_returns_only_active_records_for_requested_user(self) -> None:
+    def test_subscriptions_requires_auth_and_binding(self) -> None:
+        missing_auth = self.client.get(
+            "/api/subscriptions",
+            params={"platform": "tg", "platform_user_id": "42"},
+        )
+        self.assertEqual(missing_auth.status_code, 401)
+
+        token = self._register_web_user()[0]
+        unbound = self.client.get(
+            "/api/subscriptions",
+            params={"platform": "tg", "platform_user_id": "42"},
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(unbound.status_code, 403)
+
+        self._bind_platform_user(token, platform="tg", platform_user_id="42")
         response = self.client.get(
             "/api/subscriptions",
             params={"platform": "tg", "platform_user_id": "42"},
+            headers=self._auth_headers(token),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -43,6 +62,9 @@ class WebApiTest(unittest.TestCase):
         self.assertNotIn("enabled", data["subscriptions"][0])
 
     def test_chat_history_returns_conversations_and_messages_in_order(self) -> None:
+        token = self._register_web_user()[0]
+        self._bind_platform_user(token, platform="tg", platform_user_id="42")
+
         response = self.client.get(
             "/api/chat-history",
             params={
@@ -51,6 +73,7 @@ class WebApiTest(unittest.TestCase):
                 "conversation_limit": 10,
                 "message_limit": 10,
             },
+            headers=self._auth_headers(token),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -65,31 +88,105 @@ class WebApiTest(unittest.TestCase):
         self.assertNotIn("thread_id", conversations[0])
         self.assertNotIn("metadata_json", conversations[0]["messages"][0])
 
-    def test_unknown_user_returns_empty_arrays(self) -> None:
+    def test_unbound_or_unknown_user_is_forbidden(self) -> None:
+        token = self._register_web_user()[0]
         subscriptions = self.client.get(
             "/api/subscriptions",
             params={"platform": "tg", "platform_user_id": "missing"},
+            headers=self._auth_headers(token),
         )
         chat_history = self.client.get(
             "/api/chat-history",
             params={"platform": "tg", "platform_user_id": "missing"},
+            headers=self._auth_headers(token),
         )
 
-        self.assertEqual(subscriptions.status_code, 200)
-        self.assertEqual(chat_history.status_code, 200)
-        self.assertEqual(subscriptions.json(), {"subscriptions": []})
-        self.assertEqual(chat_history.json(), {"conversations": []})
+        self.assertEqual(subscriptions.status_code, 403)
+        self.assertEqual(chat_history.status_code, 403)
 
     def test_required_query_params_reject_missing_or_blank_values(self) -> None:
+        token = self._register_web_user()[0]
         for path in ("/api/subscriptions", "/api/chat-history"):
-            missing = self.client.get(path, params={"platform": "tg"})
+            missing = self.client.get(
+                path,
+                params={"platform": "tg"},
+                headers=self._auth_headers(token),
+            )
             blank = self.client.get(
                 path,
                 params={"platform": "  ", "platform_user_id": "42"},
+                headers=self._auth_headers(token),
             )
 
             self.assertEqual(missing.status_code, 422)
             self.assertEqual(blank.status_code, 422)
+
+    def test_admin_link_code_binds_bot_account_and_lists_bindings(self) -> None:
+        token = self._register_web_user()[0]
+
+        empty = self.client.get(
+            "/api/admin/bindings",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.json(), {"bindings": [], "max_per_platform": 2})
+
+        code_response = self.client.post(
+            "/api/admin/link-codes",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(code_response.status_code, 200)
+        code_payload = code_response.json()
+        self.assertRegex(code_payload["code"], r"^[A-Z2-9]{8}$")
+        self.assertNotIn("platform", code_payload)
+        self.assertTrue(code_payload["expires_at"])
+
+        result = complete_platform_link(
+            platform="tg",
+            platform_user_id="42",
+            code=code_payload["code"],
+            username="tester",
+            display_name="Test User",
+            language_code="zh",
+        )
+        self.assertFalse(result.already_bound)
+
+        bindings = self.client.get(
+            "/api/admin/bindings",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(bindings.status_code, 200)
+        binding_payload = bindings.json()["bindings"]
+        self.assertEqual(len(binding_payload), 1)
+        self.assertEqual(binding_payload[0]["platform"], "tg")
+        self.assertEqual(binding_payload[0]["platform_user_id"], "42")
+        self.assertEqual(binding_payload[0]["display_name"], "Test User")
+
+    def test_link_code_respects_platform_binding_limit_env(self) -> None:
+        token = self._register_web_user()[0]
+
+        with patch.dict(os.environ, {"MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM": "1"}):
+            self._bind_platform_user(token, platform="tg", platform_user_id="42")
+            code_response = self.client.post(
+                "/api/admin/link-codes",
+                headers=self._auth_headers(token),
+            )
+            self.assertEqual(code_response.status_code, 200)
+            code = code_response.json()["code"]
+
+            with self.assertRaisesRegex(ValueError, "最多绑定 1 个 Telegram 账号"):
+                complete_platform_link(
+                    platform="tg",
+                    platform_user_id="43",
+                    code=code,
+                )
+
+            result = complete_platform_link(
+                platform="qq",
+                platform_user_id="qq-42",
+                code=code,
+            )
+            self.assertFalse(result.already_bound)
 
     def test_web_auth_register_login_me_and_logout(self) -> None:
         registered = self.client.post(
@@ -215,6 +312,41 @@ class WebApiTest(unittest.TestCase):
         conversations = response.json()["conversations"]
         self.assertEqual(len(conversations), 1)
         self.assertEqual(conversations[0]["messages"][0]["content"], "Web 消息")
+
+    def _register_web_user(
+        self,
+        *,
+        username: str = "Alice Web",
+        password: str = "secret1",
+    ) -> tuple[str, int]:
+        registered = self.client.post(
+            "/api/auth/register",
+            json={"username": username, "password": password},
+        )
+        self.assertEqual(registered.status_code, 200)
+        payload = registered.json()
+        return payload["token"], payload["user"]["id"]
+
+    def _auth_headers(self, token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}"}
+
+    def _bind_platform_user(
+        self,
+        token: str,
+        *,
+        platform: str,
+        platform_user_id: str,
+    ) -> None:
+        code_response = self.client.post(
+            "/api/admin/link-codes",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(code_response.status_code, 200)
+        complete_platform_link(
+            platform=platform,
+            platform_user_id=platform_user_id,
+            code=code_response.json()["code"],
+        )
 
     def _seed_data(self) -> None:
         now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)

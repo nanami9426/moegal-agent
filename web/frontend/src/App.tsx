@@ -4,7 +4,10 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  Copy,
   History,
+  KeyRound,
+  Link2,
   LogIn,
   LogOut,
   MessageCircle,
@@ -19,13 +22,17 @@ import {
 } from "lucide-react";
 
 import {
+  fetchAdminBindings,
   fetchCurrentWebUser,
   fetchDashboardData,
   fetchWebChatHistory,
+  issueLinkCode,
   type ConversationHistory,
   type DashboardData,
+  type LinkCode,
   loginWebUser,
   logoutWebUser,
+  type PlatformBindingItem,
   type Platform,
   type QueryParams,
   registerWebUser,
@@ -77,11 +84,27 @@ function App() {
 }
 
 function AdminDashboard() {
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem(webTokenStorageKey),
+  );
+  const [user, setUser] = useState<WebUser | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(Boolean(token));
+  const [bindings, setBindings] = useState<PlatformBindingItem[]>([]);
+  const [maxPerPlatform, setMaxPerPlatform] = useState(2);
+  const [selectedBindingId, setSelectedBindingId] = useState<number | null>(null);
   const [query, setQuery] = useState<QueryParams>(defaultQuery);
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingBindings, setIsLoadingBindings] = useState(false);
+  const [isIssuingLinkCode, setIsIssuingLinkCode] = useState(false);
+  const [linkCode, setLinkCode] = useState<LinkCode | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+
+  const selectedBinding = useMemo(
+    () => bindings.find((binding) => binding.id === selectedBindingId) ?? null,
+    [bindings, selectedBindingId],
+  );
 
   const summary = useMemo(() => {
     const subscriptions = data?.subscriptions.length ?? 0;
@@ -93,10 +116,124 @@ function AdminDashboard() {
     return { subscriptions, conversations, messages };
   }, [data]);
 
-  async function loadDashboard(nextQuery = query) {
-    const platformUserId = nextQuery.platformUserId.trim();
-    if (!platformUserId) {
-      const message = "请输入平台用户 ID。";
+  useEffect(() => {
+    // admin 页面不展示任何平台数据，直到本地 token 通过后端校验。
+    if (!token) {
+      setIsCheckingSession(false);
+      setUser(null);
+      setBindings([]);
+      return;
+    }
+
+    const activeToken = token;
+    let cancelled = false;
+    async function loadSession() {
+      setIsCheckingSession(true);
+      try {
+        const [currentUser, bindingPayload] = await Promise.all([
+          fetchCurrentWebUser(activeToken),
+          fetchAdminBindings(activeToken),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setUser(currentUser);
+        applyBindings(bindingPayload.bindings, bindingPayload.max_per_platform);
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+        localStorage.removeItem(webTokenStorageKey);
+        setToken(null);
+        setUser(null);
+        setBindings([]);
+        setData(null);
+        toast.error("登录已失效", {
+          description: requestError instanceof Error ? requestError.message : "请重新登录。",
+        });
+      } finally {
+        if (!cancelled) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+
+    void loadSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  function applyBindings(nextBindings: PlatformBindingItem[], nextMaxPerPlatform: number) {
+    setBindings(nextBindings);
+    setMaxPerPlatform(nextMaxPerPlatform);
+    setSelectedBindingId((current) => {
+      if (current !== null && nextBindings.some((binding) => binding.id === current)) {
+        return current;
+      }
+      return nextBindings[0]?.id ?? null;
+    });
+  }
+
+  async function refreshBindings() {
+    if (!token) {
+      return;
+    }
+
+    setIsLoadingBindings(true);
+    try {
+      const bindingPayload = await fetchAdminBindings(token);
+      applyBindings(bindingPayload.bindings, bindingPayload.max_per_platform);
+      toast.success("绑定列表已刷新");
+    } catch (requestError) {
+      toast.error("刷新绑定失败", {
+        description: requestError instanceof Error ? requestError.message : "请稍后再试。",
+      });
+    } finally {
+      setIsLoadingBindings(false);
+    }
+  }
+
+  async function handleIssueLinkCode() {
+    if (!token) {
+      return;
+    }
+
+    setIsIssuingLinkCode(true);
+    try {
+      const payload = await issueLinkCode(token);
+      setLinkCode(payload);
+      toast.success("绑定码已生成", {
+        description: `请在 Telegram 或 QQ Bot 发送 /link ${payload.code}`,
+      });
+    } catch (requestError) {
+      toast.error("生成绑定码失败", {
+        description: requestError instanceof Error ? requestError.message : "请稍后再试。",
+      });
+    } finally {
+      setIsIssuingLinkCode(false);
+    }
+  }
+
+  async function copyLinkCommand() {
+    if (!linkCode) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`/link ${linkCode.code}`);
+      toast.success("已复制绑定命令");
+    } catch {
+      toast.error("复制失败");
+    }
+  }
+
+  async function loadDashboard(nextQuery = query, binding = selectedBinding) {
+    if (!token) {
+      return;
+    }
+    if (!binding) {
+      const message = "请先绑定并选择一个 Bot 账号。";
       setError(message);
       toast.warning("缺少查询条件", {
         description: message,
@@ -109,11 +246,12 @@ function AdminDashboard() {
     try {
       const payload = await fetchDashboardData({
         ...nextQuery,
-        platformUserId,
-      });
+        platform: binding.platform,
+        platformUserId: binding.platform_user_id,
+      }, token);
       setData(payload);
       setLastLoadedAt(new Date());
-      showResourceToast(nextQuery.platform, platformUserId, payload);
+      showResourceToast(binding.platform, binding.platform_user_id, payload);
     } catch (requestError) {
       const message =
         requestError instanceof Error ? requestError.message : "请求失败，请稍后再试。";
@@ -131,9 +269,45 @@ function AdminDashboard() {
     void loadDashboard();
   }
 
+  async function handleLogout() {
+    if (token) {
+      try {
+        await logoutWebUser(token);
+      } catch {
+        // token 已失效时也继续做本地退出，避免 admin 页面停留在过期登录态。
+      }
+    }
+    localStorage.removeItem(webTokenStorageKey);
+    setToken(null);
+    setUser(null);
+    setBindings([]);
+    setData(null);
+    setLinkCode(null);
+  }
+
   function updateQuery<Key extends keyof QueryParams>(key: Key, value: QueryParams[Key]) {
     setQuery((current) => ({ ...current, [key]: value }));
   }
+
+  if (isCheckingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <RefreshCcw className="h-4 w-4 animate-spin" />
+          正在验证登录
+        </div>
+        <Toaster />
+      </main>
+    );
+  }
+
+  if (!token || !user) {
+    return <AdminLoginGate />;
+  }
+
+  const selectedLabel = selectedBinding
+    ? `${formatPlatform(selectedBinding.platform)} / ${selectedBinding.platform_user_id}`
+    : "未选择";
 
   return (
     <main className="relative min-h-screen overflow-hidden">
@@ -148,46 +322,133 @@ function AdminDashboard() {
             <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">
               用户订阅与对话记录
             </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {user.username} / ID {user.id}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill icon={Rss} label="订阅" value={summary.subscriptions} />
             <StatusPill icon={History} label="会话" value={summary.conversations} />
             <StatusPill icon={MessageCircle} label="消息" value={summary.messages} />
+            <Button asChild aria-label="Web 聊天" size="icon" variant="outline">
+              <a href="/">
+                <Bot />
+              </a>
+            </Button>
+            <Button
+              aria-label="退出登录"
+              onClick={() => void handleLogout()}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <LogOut />
+            </Button>
           </div>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
           <Card className="h-fit">
             <CardHeader>
-              <CardTitle>查询用户</CardTitle>
-              <CardDescription>按 Bot 平台身份读取现有数据。</CardDescription>
+              <CardTitle>绑定账号</CardTitle>
+              <CardDescription>
+                每个平台最多绑定 {maxPerPlatform} 个账号。
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <form className="space-y-5" onSubmit={handleSubmit}>
-                <div className="space-y-2">
-                  <Label>平台</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <PlatformButton
-                      active={query.platform === "tg"}
-                      label="Telegram"
-                      onClick={() => updateQuery("platform", "tg")}
-                    />
-                    <PlatformButton
-                      active={query.platform === "qq"}
-                      label="QQ"
-                      onClick={() => updateQuery("platform", "qq")}
-                    />
-                  </div>
-                </div>
+              <div className="mb-5 space-y-2">
+                <Button
+                  className="w-full"
+                  disabled={isIssuingLinkCode}
+                  onClick={() => void handleIssueLinkCode()}
+                  type="button"
+                  variant="outline"
+                >
+                  {isIssuingLinkCode ? (
+                    <RefreshCcw className="animate-spin" />
+                  ) : (
+                    <KeyRound />
+                  )}
+                  生成绑定码
+                </Button>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  同一个绑定码可发送给 Telegram 或 QQ Bot，平台由收到 /link 的 bot 决定。
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="platform-user-id">平台用户 ID</Label>
-                  <Input
-                    id="platform-user-id"
-                    placeholder={query.platform === "tg" ? "例如：42" : "例如：qq-42"}
-                    value={query.platformUserId}
-                    onChange={(event) => updateQuery("platformUserId", event.target.value)}
-                  />
+              {linkCode ? (
+                <div className="mb-5 rounded-md border bg-background p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        通用绑定码
+                      </p>
+                      <p className="mt-1 font-mono text-lg font-semibold tracking-normal">
+                        {linkCode.code}
+                      </p>
+                    </div>
+                    <Button
+                      aria-label="复制绑定命令"
+                      onClick={() => void copyLinkCommand()}
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Copy />
+                    </Button>
+                  </div>
+                  <p className="break-all text-sm text-muted-foreground">
+                    在 Telegram 或 QQ Bot 发送：/link {linkCode.code}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    有效期至 {formatTime(linkCode.expires_at)}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="mb-5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>已绑定账号</Label>
+                  <Button
+                    disabled={isLoadingBindings}
+                    onClick={() => void refreshBindings()}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <RefreshCcw className={cn(isLoadingBindings && "animate-spin")} />
+                    刷新
+                  </Button>
+                </div>
+                {bindings.length === 0 ? (
+                  <div className="rounded-md border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                    还没有绑定账号。
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {bindings.map((binding) => (
+                      <BindingAccountButton
+                        active={binding.id === selectedBindingId}
+                        binding={binding}
+                        key={binding.id}
+                        onClick={() => {
+                          setSelectedBindingId(binding.id);
+                          setData(null);
+                          setError(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <form className="space-y-5" onSubmit={handleSubmit}>
+                <div className="rounded-md border bg-background p-3 text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Link2 className="h-4 w-4" />
+                    当前账号
+                  </div>
+                  <p className="mt-1 break-all font-medium">{selectedLabel}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -227,7 +488,7 @@ function AdminDashboard() {
                 ) : null}
 
                 <div className="flex gap-2">
-                  <Button className="flex-1" disabled={isLoading} type="submit">
+                  <Button className="flex-1" disabled={isLoading || !selectedBinding} type="submit">
                     {isLoading ? (
                       <RefreshCcw className="animate-spin" />
                     ) : (
@@ -237,7 +498,7 @@ function AdminDashboard() {
                   </Button>
                   <Button
                     aria-label="刷新"
-                    disabled={isLoading || !data}
+                    disabled={isLoading || !data || !selectedBinding}
                     onClick={() => void loadDashboard()}
                     size="icon"
                     type="button"
@@ -796,25 +1057,67 @@ function messagesFromConversations(conversations: ConversationHistory[]): ChatMe
     }));
 }
 
-function PlatformButton({
+function AdminLoginGate() {
+  return (
+    <main className="relative min-h-screen overflow-hidden">
+      <div className="surface-grid pointer-events-none absolute inset-x-0 top-0 h-80" />
+      <div className="container relative z-10 flex min-h-screen max-w-3xl items-center justify-center py-8">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <Shield className="h-5 w-5" />
+            </div>
+            <CardTitle>需要登录</CardTitle>
+            <CardDescription>
+              登录 Web 用户后才能进入管理后台。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button asChild className="w-full">
+              <a href="/">
+                <LogIn />
+                去登录
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+      <Toaster />
+    </main>
+  );
+}
+
+function BindingAccountButton({
   active,
-  label,
+  binding,
   onClick,
 }: {
   active: boolean;
-  label: string;
+  binding: PlatformBindingItem;
   onClick: () => void;
 }) {
+  const title = binding.display_name || binding.username || binding.platform_user_id;
   return (
-    <Button
+    <button
       aria-pressed={active}
-      className={cn(active && "border-primary bg-primary/10 text-primary hover:bg-primary/15")}
+      className={cn(
+        "w-full rounded-md border bg-background p-3 text-left text-sm transition-colors hover:bg-accent",
+        active && "border-primary bg-primary/10 text-primary",
+      )}
       onClick={onClick}
       type="button"
-      variant="outline"
     >
-      {label}
-    </Button>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium">{title}</span>
+        <Badge variant={active ? "success" : "secondary"}>{formatPlatform(binding.platform)}</Badge>
+      </div>
+      <div className="mt-1 break-all text-xs text-muted-foreground">
+        {binding.platform_user_id}
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        绑定：{formatTime(binding.bound_at)}
+      </div>
+    </button>
   );
 }
 
@@ -838,7 +1141,7 @@ function StatusPill({
 
 function Overview({ data }: { data: DashboardData | null }) {
   if (!data) {
-    return <EmptyState title="等待查询" description="输入平台用户 ID 后查看订阅和聊天记录。" />;
+    return <EmptyState title="等待查询" description="选择已绑定账号后查看订阅和聊天记录。" />;
   }
 
   return (

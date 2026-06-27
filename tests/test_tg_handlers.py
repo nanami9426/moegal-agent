@@ -10,6 +10,7 @@ from bots.tg.handlers import (
     PENDING_TRANSLATE_PHOTO_KEY,
     handel_receive_picture,
     handle_text,
+    link_command,
     newchat_command,
     translate_command,
     unsubscribe_command,
@@ -331,6 +332,43 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             target="ブルアカ",
         )
         update.message.reply_text.assert_awaited_once_with("已取消订阅：ブルアカ")
+
+    async def test_link_command_completes_platform_binding(self) -> None:
+        user = _user()
+        update = SimpleNamespace(
+            effective_user=user,
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+        context = SimpleNamespace(args=["ABCD1234"])
+
+        with patch(
+            "bots.tg.handlers.complete_platform_link",
+            return_value=SimpleNamespace(already_bound=False),
+        ) as complete_link_mock:
+            await link_command(update, context)
+
+        complete_link_mock.assert_called_once_with(
+            platform="tg",
+            platform_user_id="42",
+            code="ABCD1234",
+            username="tester",
+            display_name="Test",
+            language_code="zh",
+        )
+        update.message.reply_text.assert_awaited_once_with(
+            "绑定成功。现在可以在 Web 管理后台查看该 Telegram 账号的数据。"
+        )
+
+    async def test_link_command_requires_code(self) -> None:
+        update = SimpleNamespace(
+            effective_user=_user(),
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+        context = SimpleNamespace(args=[])
+
+        await link_command(update, context)
+
+        update.message.reply_text.assert_awaited_once_with("用法：/link 绑定码")
 
     async def test_newchat_command_starts_new_context(self) -> None:
         update = SimpleNamespace(

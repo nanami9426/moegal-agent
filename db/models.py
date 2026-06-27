@@ -71,6 +71,47 @@ class WebSession(SQLModel, table=True):
     revoked_at: datetime | None = Field(default=None)
 
 
+class WebLinkCode(SQLModel, table=True):
+    __tablename__ = "web_link_codes"
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_web_link_codes_code_hash"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    web_user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    # 只保存绑定码哈希，避免数据库泄露后 10 分钟内的明文码可被直接使用。
+    code_hash: str = Field(index=True, max_length=128)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    expires_at: datetime = Field(nullable=False)
+    used_at: datetime | None = Field(default=None)
+
+
+class WebBotBinding(SQLModel, table=True):
+    __tablename__ = "web_bot_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "web_user_id",
+            "platform",
+            "platform_user_id",
+            name="uq_web_bot_bindings_web_platform_user",
+        ),
+        UniqueConstraint("bot_user_id", name="uq_web_bot_bindings_bot_user"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    web_user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    bot_user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    platform: str = Field(index=True, max_length=32)
+    platform_user_id: str = Field(index=True, max_length=128)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class Subscription(SQLModel, table=True):
     __tablename__ = "subscriptions"
     __table_args__ = (

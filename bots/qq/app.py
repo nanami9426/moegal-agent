@@ -14,6 +14,7 @@ from botpy.message import C2CMessage
 from config.paths import BOTPY_LOG_PATH, LOG_DIR, QQ_SAVED_PICTURES_DIR, QQ_TRANSLATED_IMAGES_DIR
 from utils.logger import logger
 from agent.router import route_message, start_new_conversation_context
+from services.account.bindings import complete_platform_link
 from services.image_workflow import (
     ImageWorkflowResult,
     PendingImage,
@@ -25,10 +26,12 @@ from services.image_workflow import (
 
 PENDING_TRANSLATE_COMMAND = "/translate"
 NEWCHAT_COMMAND = "/newchat"
+LINK_COMMAND = "/link"
 QQ_IMAGE_DOWNLOAD_FAILED_MESSAGE = "图片下载失败，请稍后再试。"
 QQ_PUBLIC_IMAGE_FAILED_MESSAGE = "翻译后的图片已生成，但发送失败，请检查公开图片地址配置。"
 TRANSLATE_PROMPT_MESSAGE = "请发送要翻译的图片。"
 NEWCHAT_MESSAGE = "已开启新的对话上下文。订阅和摘要记录不会受影响。"
+LINK_USAGE_MESSAGE = "用法：/link 绑定码"
 
 
 class QQClient(botpy.Client):
@@ -77,6 +80,11 @@ class QQClient(botpy.Client):
             await message.reply(msg_type=0, content=NEWCHAT_MESSAGE)
             return
 
+        link_code = _parse_command_arg(content, LINK_COMMAND)
+        if link_code is not None:
+            await self._handle_link_command(message, openid, link_code)
+            return
+
         pending_image = self._pending_comic_images.get(openid)
         if pending_image is not None:
             result = await handle_pending_image_reply(
@@ -95,6 +103,32 @@ class QQClient(botpy.Client):
 
         result_str = await route_message("qq", openid, content)
         await message.reply(msg_type=0, content=result_str)
+
+    async def _handle_link_command(
+        self,
+        message: C2CMessage,
+        openid: str,
+        code: str,
+    ) -> None:
+        if not code:
+            await message.reply(msg_type=0, content=LINK_USAGE_MESSAGE)
+            return
+
+        try:
+            result = complete_platform_link(
+                platform="qq",
+                platform_user_id=openid,
+                code=code,
+            )
+        except ValueError as exc:
+            await message.reply(msg_type=0, content=str(exc))
+            return
+
+        if result.already_bound:
+            reply = "该 QQ 账号已经绑定到此 Web 用户。"
+        else:
+            reply = "绑定成功。现在可以在 Web 管理后台查看该 QQ 账号的数据。"
+        await message.reply(msg_type=0, content=reply)
 
     async def _handle_image_message(self, message: C2CMessage, openid: str, content: str, attachment) -> None:
         try:
@@ -178,6 +212,14 @@ def _first_image_attachment(message: C2CMessage):
         ):
             return attachment
 
+    return None
+
+
+def _parse_command_arg(content: str, command: str) -> str | None:
+    if content == command:
+        return ""
+    if content.startswith(f"{command} "):
+        return content[len(command):].strip()
     return None
 
 

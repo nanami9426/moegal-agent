@@ -34,6 +34,25 @@ export interface DashboardData {
   conversations: ConversationHistory[];
 }
 
+export interface PlatformBindingItem {
+  id: number;
+  platform: Platform;
+  platform_user_id: string;
+  username: string | null;
+  display_name: string | null;
+  bound_at: string;
+}
+
+export interface AdminBindingsResponse {
+  bindings: PlatformBindingItem[];
+  max_per_platform: number;
+}
+
+export interface LinkCode {
+  code: string;
+  expires_at: string;
+}
+
 export interface WebUser {
   id: number;
   username: string;
@@ -53,7 +72,7 @@ export interface QueryParams {
 
 const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
-export async function fetchDashboardData(params: QueryParams): Promise<DashboardData> {
+export async function fetchDashboardData(params: QueryParams, token: string): Promise<DashboardData> {
   const search = new URLSearchParams({
     platform: params.platform,
     platform_user_id: params.platformUserId,
@@ -63,14 +82,22 @@ export async function fetchDashboardData(params: QueryParams): Promise<Dashboard
   chatSearch.set("message_limit", String(params.messageLimit));
 
   const [subscriptions, chatHistory] = await Promise.all([
-    getJson<{ subscriptions: SubscriptionItem[] }>(`/api/subscriptions?${search}`),
-    getJson<{ conversations: ConversationHistory[] }>(`/api/chat-history?${chatSearch}`),
+    getJson<{ subscriptions: SubscriptionItem[] }>(`/api/subscriptions?${search}`, token),
+    getJson<{ conversations: ConversationHistory[] }>(`/api/chat-history?${chatSearch}`, token),
   ]);
 
   return {
     subscriptions: subscriptions.subscriptions,
     conversations: chatHistory.conversations,
   };
+}
+
+export async function fetchAdminBindings(token: string): Promise<AdminBindingsResponse> {
+  return getJson<AdminBindingsResponse>("/api/admin/bindings", token);
+}
+
+export async function issueLinkCode(token: string): Promise<LinkCode> {
+  return postJson<LinkCode>("/api/admin/link-codes", undefined, token);
 }
 
 export async function registerWebUser(username: string, password: string): Promise<AuthResponse> {
@@ -150,7 +177,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 function buildHeaders(token?: string, body?: unknown): HeadersInit {
-  // Web 聊天接口用 Bearer token；管理后台读取接口不传 token。
+  // Web 聊天和管理后台都用 Bearer token，后端再按绑定关系做数据隔离。
   const headers: Record<string, string> = {};
   if (body !== undefined) {
     headers["content-type"] = "application/json";

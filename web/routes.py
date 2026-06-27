@@ -2,8 +2,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlmodel import Session, select
 
 from agent.router import route_message, start_new_conversation_context
-from db.models import Conversation, Message, Subscription, User
+from db.models import Conversation, Message, Subscription, User, WebBotBinding
 from db.session import get_engine
+from services.account.bindings import (
+    get_max_bindings_per_platform,
+    issue_link_code,
+    list_platform_bindings,
+    normalize_bot_platform,
+)
 from services.account.web_auth import (
     AuthenticatedWebUser,
     get_authenticated_web_user,
@@ -12,8 +18,11 @@ from services.account.web_auth import (
     revoke_web_session,
 )
 from web.schemas import (
+    AdminBindingsResponse,
     ChatHistoryResponse,
     ConversationHistory,
+    LinkCodeResponse,
+    PlatformBindingItem,
     MessageItem,
     SubscriptionItem,
     SubscriptionsResponse,
@@ -40,7 +49,7 @@ def _normalize_required_query(value: str, field_name: str) -> str:
 def _require_web_user(
     authorization: str | None = Header(default=None),
 ) -> AuthenticatedWebUser:
-    # Web 聊天接口使用 Bearer token；/admin 读接口按当前需求暂不鉴权。
+    # Web 账号接口统一使用 Bearer token，admin 只能读取当前 Web 用户可见的数据。
     token = _extract_bearer_token(authorization)
     if token is None:
         raise HTTPException(status_code=401, detail="Missing bearer token.")
@@ -67,22 +76,21 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     response_model=SubscriptionsResponse,
     summary="查询用户启用订阅",
     description=(
-        "管理后台接口。按平台和平台用户 ID 查询已有用户的启用订阅；"
-        "不会创建用户、订阅或修改任何数据。"
+        "管理后台接口。根据 bearer token 识别当前 Web 用户，"
+        "仅允许读取已绑定 Bot 账号的启用订阅。"
     ),
 )
 def get_subscriptions(
     platform: str = Query(...),
     platform_user_id: str = Query(...),
+    current_user: AuthenticatedWebUser = Depends(_require_web_user),
 ) -> SubscriptionsResponse:
-    # 管理后台按平台身份读取现有 Bot 用户数据，不在这里创建用户。
-    platform = _normalize_required_query(platform, "platform")
+    # 管理后台只能读取当前 Web 用户已经绑定过的 Bot 账号数据。
+    platform = _normalize_bot_platform_query(platform)
     platform_user_id = _normalize_required_query(platform_user_id, "platform_user_id")
 
     with Session(get_engine()) as session:
-        user = _get_user(session, platform, platform_user_id)
-        if user is None:
-            return SubscriptionsResponse(subscriptions=[])
+        user = _get_bound_bot_user(session, current_user, platform, platform_user_id)
 
         subscriptions = session.exec(
             select(Subscription)
@@ -106,8 +114,8 @@ def get_subscriptions(
     response_model=ChatHistoryResponse,
     summary="查询用户聊天历史",
     description=(
-        "管理后台接口。按平台和平台用户 ID 查询已有用户的会话和消息记录；"
-        "支持限制返回的会话数和每个会话内的消息数。"
+        "管理后台接口。根据 bearer token 识别当前 Web 用户，"
+        "仅允许读取已绑定 Bot 账号的会话和消息记录。"
     ),
 )
 def get_chat_history(
@@ -115,11 +123,13 @@ def get_chat_history(
     platform_user_id: str = Query(...),
     conversation_limit: int = Query(20, ge=1, le=100),
     message_limit: int = Query(100, ge=1, le=500),
+    current_user: AuthenticatedWebUser = Depends(_require_web_user),
 ) -> ChatHistoryResponse:
-    platform = _normalize_required_query(platform, "platform")
+    platform = _normalize_bot_platform_query(platform)
     platform_user_id = _normalize_required_query(platform_user_id, "platform_user_id")
 
     with Session(get_engine()) as session:
+        _get_bound_bot_user(session, current_user, platform, platform_user_id)
         return _build_chat_history(
             session,
             platform,
@@ -127,6 +137,44 @@ def get_chat_history(
             conversation_limit=conversation_limit,
             message_limit=message_limit,
         )
+
+
+@router.get(
+    "/admin/bindings",
+    response_model=AdminBindingsResponse,
+    summary="读取当前 Web 用户的 Bot 绑定",
+    description="管理后台接口。根据 bearer token 返回当前 Web 用户已经绑定的 TG/QQ 账号。",
+)
+def get_admin_bindings(
+    current_user: AuthenticatedWebUser = Depends(_require_web_user),
+) -> AdminBindingsResponse:
+    return AdminBindingsResponse(
+        bindings=[
+            PlatformBindingItem.model_validate(binding)
+            for binding in list_platform_bindings(web_user_id=current_user.user_id)
+        ],
+        max_per_platform=get_max_bindings_per_platform(),
+    )
+
+
+@router.post(
+    "/admin/link-codes",
+    response_model=LinkCodeResponse,
+    summary="申请 Bot 账号绑定码",
+    description=(
+        "管理后台接口。当前 Web 用户生成 10 分钟有效绑定码；"
+        "用户把绑定码发送给 TG 或 QQ bot 的 /link 命令后，即绑定对应平台账号。"
+    ),
+)
+def create_link_code(
+    current_user: AuthenticatedWebUser = Depends(_require_web_user),
+) -> LinkCodeResponse:
+    try:
+        link_code = issue_link_code(web_user_id=current_user.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return LinkCodeResponse.model_validate(link_code)
 
 
 @router.post(
@@ -280,6 +328,37 @@ def _get_user(
             User.platform_user_id == platform_user_id,
         )
     ).first()
+
+
+def _normalize_bot_platform_query(platform: str) -> str:
+    try:
+        return normalize_bot_platform(_normalize_required_query(platform, "platform"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _get_bound_bot_user(
+    session: Session,
+    current_user: AuthenticatedWebUser,
+    platform: str,
+    platform_user_id: str,
+) -> User:
+    user = _get_user(session, platform, platform_user_id)
+    if user is None:
+        raise HTTPException(status_code=403, detail="请先绑定该平台账号。")
+
+    binding = session.exec(
+        select(WebBotBinding).where(
+            WebBotBinding.web_user_id == current_user.user_id,
+            WebBotBinding.bot_user_id == user.id,
+            WebBotBinding.platform == platform,
+            WebBotBinding.platform_user_id == platform_user_id,
+        )
+    ).first()
+    if binding is None:
+        raise HTTPException(status_code=403, detail="请先绑定该平台账号。")
+
+    return user
 
 
 def _build_chat_history(

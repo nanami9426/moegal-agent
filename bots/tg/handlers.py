@@ -12,6 +12,7 @@ from agent.router import (
     start_new_conversation_context,
 )
 from config.paths import TG_SAVED_PICTURES_DIR
+from services.account.bindings import complete_platform_link
 from services.account.subscriptions import create_subscription, delete_subscription
 from services.account.users import upsert_user
 from services.image_workflow import (
@@ -89,9 +90,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/unsubscribe xxx\n\n"
         "3. 开启新的对话上下文\n"
         "/newchat\n\n"
-        "4. 查看今日摘要\n"
+        "4. 绑定 Web 管理后台\n"
+        "/link 绑定码\n\n"
+        "5. 查看今日摘要\n"
         "/digest\n\n"
-        "5. 翻译图片\n"
+        "6. 翻译图片\n"
         "/translate"
     )
 
@@ -186,6 +189,40 @@ async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     start_new_conversation_context("tg", str(user.id))
     await update.message.reply_text("已开启新的对话上下文。订阅和摘要记录不会受影响。")
+
+
+async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    处理 /link 绑定码。
+    """
+    user = update.effective_user
+    code = " ".join(context.args).strip()
+
+    if not code:
+        await update.message.reply_text("用法：/link 绑定码")
+        return
+
+    if user is None:
+        await update.message.reply_text("无法识别当前用户，请稍后再试。")
+        return
+
+    try:
+        result = complete_platform_link(
+            platform="tg",
+            platform_user_id=str(user.id),
+            code=code,
+            username=user.username,
+            display_name=_telegram_display_name(user),
+            language_code=user.language_code,
+        )
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return
+
+    if result.already_bound:
+        await update.message.reply_text("该 Telegram 账号已经绑定到此 Web 用户。")
+    else:
+        await update.message.reply_text("绑定成功。现在可以在 Web 管理后台查看该 Telegram 账号的数据。")
 
 
 async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -46,6 +46,7 @@ QQ_BOT_SK=
 - `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
 - `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
 - `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
+- `MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM`：每个 Web 用户同平台最多可绑定的 Bot 账号数，默认 `2`。
 - `MOEGAL_PUBLIC_ASSET_BASE_URL`：QQ 图片回图必需。翻译后图片的公开静态资源地址，例如 `https://static.example.com/moegal-qq`。
 - `MOEGAL_QQ_IMAGE_REMOTE_HOST`：QQ 图片回图必需。SFTP 上传目标主机。
 - `MOEGAL_QQ_IMAGE_REMOTE_PORT`：远端 SSH 端口，默认 `22`。
@@ -113,21 +114,22 @@ RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-comp
 uv run uvicorn web.app:app --reload
 ```
 
-当前提供管理后台读取接口，用户身份复用现有 Bot 平台用户：
-
-- `GET /api/subscriptions?platform=tg&platform_user_id=42`：返回用户启用中的订阅。
-- `GET /api/chat-history?platform=tg&platform_user_id=42`：返回用户会话和消息记录。
-
-这两个接口只查询已有数据，不会创建用户、订阅或新会话。
-
 Web 端聊天机器人使用独立的简单账号体系：
 
 - `POST /api/auth/register`：注册 Web 用户，参数为 `username` 和 `password`。平台会分配 10 位纯数字用户 ID。
 - `POST /api/auth/login`：使用 10 位用户 ID 和密码登录并返回 bearer token。
 - `GET /api/auth/me`：读取当前 Web 用户。
+- `POST /api/admin/link-codes`：登录后申请通用绑定码，绑定码 10 分钟有效。
+- `GET /api/admin/bindings`：读取当前 Web 用户已经绑定的 TG/QQ 账号。
+- `GET /api/subscriptions?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回用户启用中的订阅。
+- `GET /api/chat-history?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回用户会话和消息记录。
 - `POST /api/web-chat/messages`：发送 Web 聊天消息。
 - `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
 - `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
+
+绑定流程：Web 用户在 `/admin` 申请绑定码，然后在 Telegram 或 QQ bot 内发送
+`/link 绑定码`。绑定成功后，管理后台只能查看当前 Web 用户已绑定账号的订阅和聊天历史。
+暂不提供解绑功能。
 
 ## Frontend
 
@@ -142,7 +144,8 @@ npm run dev
 本地联调时先启动 FastAPI，或直接使用 `./scripts/start_with_gateway.sh`。前端开发服务会把
 `/api` 代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
 
-前端根路径 `/` 是 Web 聊天页，原来按平台用户 ID 查询订阅和聊天记录的页面移动到 `/admin`。
+前端根路径 `/` 是 Web 聊天页，`/admin` 是需要 Web 登录的管理后台。TG/QQ 数据必须先完成
+`/link` 绑定后才能查看。
 
 ## QQ 图片回图配置
 

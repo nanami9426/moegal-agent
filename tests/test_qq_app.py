@@ -83,6 +83,40 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
             content="已开启新的对话上下文。订阅和摘要记录不会受影响。",
         )
 
+    async def test_link_command_completes_platform_binding(self) -> None:
+        client = _client()
+        message = _message("/link ABCD1234")
+
+        with (
+            patch(
+                "bots.qq.app.complete_platform_link",
+                return_value=SimpleNamespace(already_bound=False),
+            ) as complete_link_mock,
+            patch("bots.qq.app.route_message", AsyncMock()) as route_message_mock,
+        ):
+            await client.on_c2c_message_create(message)
+
+        complete_link_mock.assert_called_once_with(
+            platform="qq",
+            platform_user_id="openid-1",
+            code="ABCD1234",
+        )
+        route_message_mock.assert_not_awaited()
+        message.reply.assert_awaited_once_with(
+            msg_type=0,
+            content="绑定成功。现在可以在 Web 管理后台查看该 QQ 账号的数据。",
+        )
+
+    async def test_link_command_requires_code(self) -> None:
+        client = _client()
+        message = _message("/link")
+
+        with patch("bots.qq.app.route_message", AsyncMock()) as route_message_mock:
+            await client.on_c2c_message_create(message)
+
+        route_message_mock.assert_not_awaited()
+        message.reply.assert_awaited_once_with(msg_type=0, content="用法：/link 绑定码")
+
     async def test_c2c_image_answers_non_manga_image(self) -> None:
         client = _client()
         message = _message("这是什么", [_attachment()])
