@@ -113,12 +113,21 @@ RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-comp
 uv run uvicorn web.app:app --reload
 ```
 
-当前提供两个 GET 接口，用户身份复用现有 Bot 平台用户：
+当前提供管理后台读取接口，用户身份复用现有 Bot 平台用户：
 
 - `GET /api/subscriptions?platform=tg&platform_user_id=42`：返回用户启用中的订阅。
 - `GET /api/chat-history?platform=tg&platform_user_id=42`：返回用户会话和消息记录。
 
-接口只查询已有数据，不会创建用户、订阅或新会话。
+这两个接口只查询已有数据，不会创建用户、订阅或新会话。
+
+Web 端聊天机器人使用独立的简单账号体系：
+
+- `POST /api/auth/register`：注册 Web 用户，参数为 `username` 和 `password`。平台会分配 10 位纯数字用户 ID。
+- `POST /api/auth/login`：使用 10 位用户 ID 和密码登录并返回 bearer token。
+- `GET /api/auth/me`：读取当前 Web 用户。
+- `POST /api/web-chat/messages`：发送 Web 聊天消息。
+- `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
+- `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
 
 ## Frontend
 
@@ -132,6 +141,8 @@ npm run dev
 
 本地联调时先启动 FastAPI，或直接使用 `./scripts/start_with_gateway.sh`。前端开发服务会把
 `/api` 代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
+
+前端根路径 `/` 是 Web 聊天页，原来按平台用户 ID 查询订阅和聊天记录的页面移动到 `/admin`。
 
 ## QQ 图片回图配置
 

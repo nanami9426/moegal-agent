@@ -42,3 +42,34 @@ class ConversationHistory(BaseModel):
 class ChatHistoryResponse(BaseModel):
     conversations: list[ConversationHistory]
 
+
+class WebUserItem(BaseModel):
+    id: int
+    username: str
+
+
+class WebRegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class WebLoginRequest(BaseModel):
+    user_id: str
+    password: str
+
+
+class WebAuthResponse(BaseModel):
+    token: str
+    user: WebUserItem
+
+
+class WebMeResponse(BaseModel):
+    user: WebUserItem
+
+
+class WebChatMessageRequest(BaseModel):
+    message: str
+
+
+class WebChatMessageResponse(BaseModel):
+    reply: str

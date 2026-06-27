@@ -35,6 +35,42 @@ class User(SQLModel, table=True):
     last_seen_at: datetime | None = Field(default=None)
 
 
+# Web 登录信息单独存放；业务身份仍落到 users，使用 platform=web 复用订阅和会话。
+class WebAccount(SQLModel, table=True):
+    __tablename__ = "web_accounts"
+    __table_args__ = (
+        UniqueConstraint("login_id", name="uq_web_accounts_login_id"),
+        UniqueConstraint("user_id", name="uq_web_accounts_user_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    login_id: str = Field(index=True, max_length=10)
+    username: str = Field(max_length=64)
+    password_hash: str = Field(max_length=512, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+# Web 会话只保存 token 哈希值，明文 token 只在登录/注册响应中返回给前端。
+class WebSession(SQLModel, table=True):
+    __tablename__ = "web_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_web_sessions_token_hash"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    token_hash: str = Field(index=True, max_length=128)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    expires_at: datetime = Field(nullable=False)
+    revoked_at: datetime | None = Field(default=None)
+
+
 class Subscription(SQLModel, table=True):
     __tablename__ = "subscriptions"
     __table_args__ = (
