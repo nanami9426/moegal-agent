@@ -103,6 +103,34 @@ uv run python main.py --bot qq,tg
 
 RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-compose.yml`
 
+## Web API
+
+前端只读接口由 FastAPI 提供，入口在 `web/` 包。启动 Web API：
+
+```bash
+uv run uvicorn web.app:app --reload
+```
+
+当前提供两个 GET 接口，用户身份复用现有 Bot 平台用户：
+
+- `GET /api/subscriptions?platform=tg&platform_user_id=42`：返回用户启用中的订阅。
+- `GET /api/chat-history?platform=tg&platform_user_id=42`：返回用户会话和消息记录。
+
+接口只查询已有数据，不会创建用户、订阅或新会话。
+
+## Frontend
+
+前端位于 `web/frontend/`，使用 React、Vite、Tailwind CSS 和 shadcn/ui 风格组件。启动方式：
+
+```bash
+cd web/frontend
+pnpm install
+pnpm dev
+```
+
+本地联调时先启动 FastAPI：`uv run uvicorn web.app:app --reload`。前端开发服务会把 `/api`
+代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
+
 ## QQ 图片回图配置
 
 QQ 发送图片需要一个 QQ 服务器可访问的公网 URL。当前使用远程上传方式：本地 bot 生成图片，通过 SFTP 上传到云服务器 nginx 静态目录，然后把公网 URL 发给 QQ。推荐配置如下：
