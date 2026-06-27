@@ -20,8 +20,14 @@ import {
   type QueryParams,
   type SubscriptionItem,
 } from "@/lib/api";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const defaultQuery: QueryParams = {
@@ -66,7 +73,11 @@ function App() {
   async function loadDashboard(nextQuery = query) {
     const platformUserId = nextQuery.platformUserId.trim();
     if (!platformUserId) {
-      setError("请输入平台用户 ID。");
+      const message = "请输入平台用户 ID。";
+      setError(message);
+      toast.warning("缺少查询条件", {
+        description: message,
+      });
       return;
     }
 
@@ -79,8 +90,14 @@ function App() {
       });
       setData(payload);
       setLastLoadedAt(new Date());
+      showResourceToast(nextQuery.platform, platformUserId, payload);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "请求失败，请稍后再试。");
+      const message =
+        requestError instanceof Error ? requestError.message : "请求失败，请稍后再试。";
+      setError(message);
+      toast.error("查询失败", {
+        description: message,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -248,6 +265,7 @@ function App() {
           </section>
         </div>
       </div>
+      <Toaster />
     </main>
   );
 }
@@ -526,6 +544,34 @@ function clampNumber(value: string, min: number, max: number) {
     return min;
   }
   return Math.min(max, Math.max(min, parsed));
+}
+
+function showResourceToast(platform: Platform, platformUserId: string, payload: DashboardData) {
+  const hasSubscriptions = payload.subscriptions.length > 0;
+  const hasConversations = payload.conversations.length > 0;
+
+  if (!hasSubscriptions && !hasConversations) {
+    toast.warning("未找到对应用户或资源", {
+      description: `${formatPlatform(platform)} / ${platformUserId} 没有启用订阅或聊天记录。`,
+    });
+    return;
+  }
+
+  if (!hasSubscriptions) {
+    toast.info("没有启用订阅", {
+      description: `${formatPlatform(platform)} / ${platformUserId} 暂无订阅资源。`,
+    });
+  }
+
+  if (!hasConversations) {
+    toast.info("没有聊天记录", {
+      description: `${formatPlatform(platform)} / ${platformUserId} 暂无会话资源。`,
+    });
+  }
+}
+
+function formatPlatform(platform: Platform) {
+  return platform === "tg" ? "Telegram" : "QQ";
 }
 
 function formatTime(value: string) {
