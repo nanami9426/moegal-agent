@@ -187,8 +187,11 @@ async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("无法识别当前用户，请稍后再试。")
         return
 
-    start_new_conversation_context("tg", str(user.id))
-    await update.message.reply_text("已开启新的对话上下文。订阅和摘要记录不会受影响。")
+    result = start_new_conversation_context("tg", str(user.id))
+    if result.created:
+        await update.message.reply_text("已开启新的对话上下文。订阅和摘要记录不会受影响。")
+    else:
+        await update.message.reply_text("已在新对话中。")
 
 
 async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

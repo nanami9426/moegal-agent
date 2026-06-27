@@ -220,7 +220,7 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 普通文本对话上下文通过 LangGraph PostgreSQL checkpoint 保存到 `DATABASE_URL` 指向的数据库中，进程重启后会继续使用当前活跃会话的上下文。
 `conversations` 表保存每个平台用户的会话版本和当前活跃会话；`thread_id` 使用随机 UUID，并作为 LangGraph checkpoint 的会话隔离键。
 `messages` 表保存用户输入和最终助手回复，方便后续查询聊天记录。
-执行 `/newchat` 会结束当前活跃会话并创建新的会话版本，不会删除旧聊天记录，也不会影响订阅和摘要记录。
+执行 `/newchat` 会在当前活跃会话已有消息时结束旧版本并创建新版本；如果当前已经是空新对话，则只提示已在新对话中，不会额外创建空记录。
 
 ## QQ C2C
 

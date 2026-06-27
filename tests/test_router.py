@@ -30,18 +30,22 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 router,
                 "start_new_conversation",
-                return_value=SimpleNamespace(id=2, thread_id=second_thread_id),
+                return_value=SimpleNamespace(
+                    context=SimpleNamespace(id=2, thread_id=second_thread_id),
+                    created=True,
+                ),
             ),
             patch.object(router, "append_message"),
             patch.object(router, "get_chat_graph", AsyncMock(return_value=graph)),
         ):
             first = await router.route_message("tg", "42", "你好")
-            new_thread_id = router.start_new_conversation_context("tg", "42")
+            new_result = router.start_new_conversation_context("tg", "42")
             second = await router.route_message("tg", "42", "继续")
 
         self.assertEqual(first, "ok")
         self.assertEqual(second, "ok")
-        self.assertEqual(new_thread_id, second_thread_id)
+        self.assertTrue(new_result.created)
+        self.assertEqual(new_result.context.thread_id, second_thread_id)
         self.assertEqual(
             graph.ainvoke.await_args_list[0].kwargs["config"],
             {"configurable": {"thread_id": first_thread_id}},
@@ -63,8 +67,11 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
                 "00000000-0000-4000-8000-000000000101"
             )
             return SimpleNamespace(
-                id=10,
-                thread_id=thread_ids[platform_user_id],
+                context=SimpleNamespace(
+                    id=10,
+                    thread_id=thread_ids[platform_user_id],
+                ),
+                created=True,
             )
 
         def get_conversation_side_effect(**kwargs):

@@ -379,7 +379,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "bots.tg.handlers.start_new_conversation_context",
-            return_value="00000000-0000-4000-8000-000000000001",
+            return_value=SimpleNamespace(created=True),
         ) as start_new_context_mock:
             await newchat_command(update, context)
 
@@ -387,6 +387,21 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         update.message.reply_text.assert_awaited_once_with(
             "已开启新的对话上下文。订阅和摘要记录不会受影响。"
         )
+
+    async def test_newchat_command_reports_already_in_new_chat(self) -> None:
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=42),
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+        context = SimpleNamespace(args=[])
+
+        with patch(
+            "bots.tg.handlers.start_new_conversation_context",
+            return_value=SimpleNamespace(created=False),
+        ):
+            await newchat_command(update, context)
+
+        update.message.reply_text.assert_awaited_once_with("已在新对话中。")
 
     async def test_newchat_command_requires_user(self) -> None:
         update = SimpleNamespace(

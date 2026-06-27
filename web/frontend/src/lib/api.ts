@@ -140,8 +140,8 @@ export async function sendWebChatMessage(token: string, message: string): Promis
   return payload.reply;
 }
 
-export async function startNewWebChat(token: string): Promise<void> {
-  await postJson<{ created: boolean }>("/api/web-chat/new", undefined, token);
+export async function startNewWebChat(token: string): Promise<{ created: boolean; message: string }> {
+  return postJson<{ created: boolean; message: string }>("/api/web-chat/new", undefined, token);
 }
 
 async function getJson<T>(path: string, token?: string): Promise<T> {

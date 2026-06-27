@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 
 from agent.graph import get_chat_graph
 from services.account.conversations import (
+    NewConversationResult,
     append_message,
     get_or_create_active_conversation,
     start_new_conversation,
@@ -41,8 +42,8 @@ def start_new_conversation_context(
     username: str | None = None,
     display_name: str | None = None,
     language_code: str | None = None,
-) -> str:
-    # /newchat 会生成新的会话版本，旧版本仍保留在数据库中用于追溯。
+) -> NewConversationResult:
+    # /newchat 只在当前会话已有消息时切换版本，避免生成空会话记录。
     user = upsert_user(
         platform=platform,
         platform_user_id=platform_user_id,
@@ -50,12 +51,11 @@ def start_new_conversation_context(
         display_name=display_name,
         language_code=language_code,
     )
-    conversation = start_new_conversation(
+    return start_new_conversation(
         user_id=user.id,
         platform=platform,
         platform_user_id=platform_user_id,
     )
-    return conversation.thread_id
 
 
 def _content_to_text(content: str | list[Any]) -> str:

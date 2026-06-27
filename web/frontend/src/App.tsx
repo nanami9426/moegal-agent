@@ -682,9 +682,11 @@ function WebChatApp() {
 
     setIsStartingNew(true);
     try {
-      await startNewWebChat(token);
-      setMessages([]);
-      toast.success("已开启新的对话");
+      const result = await startNewWebChat(token);
+      if (result.created) {
+        setMessages([]);
+      }
+      toast.success(result.message);
     } catch (error) {
       toast.error("新建会话失败", {
         description: error instanceof Error ? error.message : "请稍后再试。",

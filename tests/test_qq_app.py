@@ -71,7 +71,10 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
         message = _message("/newchat")
 
         with (
-            patch("bots.qq.app.start_new_conversation_context") as start_new_context_mock,
+            patch(
+                "bots.qq.app.start_new_conversation_context",
+                return_value=SimpleNamespace(created=True),
+            ) as start_new_context_mock,
             patch("bots.qq.app.route_message", AsyncMock()) as route_message_mock,
         ):
             await client.on_c2c_message_create(message)
@@ -82,6 +85,22 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
             msg_type=0,
             content="已开启新的对话上下文。订阅和摘要记录不会受影响。",
         )
+
+    async def test_newchat_command_reports_already_in_new_chat(self) -> None:
+        client = _client()
+        message = _message("/newchat")
+
+        with (
+            patch(
+                "bots.qq.app.start_new_conversation_context",
+                return_value=SimpleNamespace(created=False),
+            ),
+            patch("bots.qq.app.route_message", AsyncMock()) as route_message_mock,
+        ):
+            await client.on_c2c_message_create(message)
+
+        route_message_mock.assert_not_awaited()
+        message.reply.assert_awaited_once_with(msg_type=0, content="已在新对话中。")
 
     async def test_link_command_completes_platform_binding(self) -> None:
         client = _client()

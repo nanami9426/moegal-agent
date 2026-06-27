@@ -85,12 +85,20 @@ class ConversationServiceTest(unittest.TestCase):
             platform="tg",
             platform_user_id="42",
         )
-        new = start_new_conversation(
+        append_message(
+            conversation_id=old.id,
+            role="user",
+            content="你好",
+        )
+        result = start_new_conversation(
             user_id=self.user_id,
             platform="tg",
             platform_user_id="42",
         )
+        new = result.context
 
+        self.assertTrue(result.created)
+        self.assertIsNotNone(new)
         self.assertEqual(old.thread_id, "00000000-0000-4000-8000-000000000001")
         self.assertEqual(new.thread_id, "00000000-0000-4000-8000-000000000002")
         self.assertEqual(old.version, 0)
@@ -105,6 +113,41 @@ class ConversationServiceTest(unittest.TestCase):
         self.assertFalse(old_row.is_active)
         self.assertIsNotNone(old_row.ended_at)
         self.assertTrue(new_row.is_active)
+
+    def test_start_new_conversation_does_not_create_empty_first_record(self) -> None:
+        result = start_new_conversation(
+            user_id=self.user_id,
+            platform="tg",
+            platform_user_id="42",
+        )
+
+        self.assertFalse(result.created)
+        self.assertIsNone(result.context)
+        with Session(self.engine) as session:
+            conversations = session.exec(select(Conversation)).all()
+        self.assertEqual(conversations, [])
+
+    def test_start_new_conversation_reuses_empty_active_conversation(self) -> None:
+        active = get_or_create_active_conversation(
+            user_id=self.user_id,
+            platform="tg",
+            platform_user_id="42",
+        )
+
+        result = start_new_conversation(
+            user_id=self.user_id,
+            platform="tg",
+            platform_user_id="42",
+        )
+
+        self.assertFalse(result.created)
+        self.assertIsNotNone(result.context)
+        self.assertEqual(result.context.id, active.id)
+        self.assertEqual(result.context.thread_id, active.thread_id)
+        with Session(self.engine) as session:
+            conversations = session.exec(select(Conversation)).all()
+        self.assertEqual(len(conversations), 1)
+        self.assertTrue(conversations[0].is_active)
 
     def test_append_message_stores_chat_log(self) -> None:
         conversation = get_or_create_active_conversation(

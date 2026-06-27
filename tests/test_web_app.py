@@ -2,6 +2,7 @@ import os
 import unittest
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -264,6 +265,26 @@ class WebApiTest(unittest.TestCase):
             username="Alice Web",
             display_name="Alice Web",
         )
+
+    def test_web_chat_new_reports_empty_current_conversation(self) -> None:
+        registered = self.client.post(
+            "/api/auth/register",
+            json={"username": "Alice Web", "password": "secret1"},
+        )
+        token = registered.json()["token"]
+
+        with patch(
+            "web.routes.start_new_conversation_context",
+            return_value=SimpleNamespace(created=False),
+        ) as start_new_mock:
+            response = self.client.post(
+                "/api/web-chat/new",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"created": False, "message": "已在新对话中。"})
+        start_new_mock.assert_called_once()
 
     def test_web_chat_history_uses_authenticated_web_user(self) -> None:
         registered = self.client.post(

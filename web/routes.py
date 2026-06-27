@@ -307,14 +307,16 @@ async def send_web_chat_message(
 )
 def start_new_web_chat(
     current_user: AuthenticatedWebUser = Depends(_require_web_user),
-) -> dict[str, bool]:
-    start_new_conversation_context(
+) -> dict[str, bool | str]:
+    result = start_new_conversation_context(
         "web",
         current_user.login_id,
         username=current_user.username,
         display_name=current_user.username,
     )
-    return {"created": True}
+    if result.created:
+        return {"created": True, "message": "已开启新的对话。"}
+    return {"created": False, "message": "已在新对话中。"}
 
 
 def _get_user(

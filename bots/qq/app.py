@@ -31,6 +31,7 @@ QQ_IMAGE_DOWNLOAD_FAILED_MESSAGE = "图片下载失败，请稍后再试。"
 QQ_PUBLIC_IMAGE_FAILED_MESSAGE = "翻译后的图片已生成，但发送失败，请检查公开图片地址配置。"
 TRANSLATE_PROMPT_MESSAGE = "请发送要翻译的图片。"
 NEWCHAT_MESSAGE = "已开启新的对话上下文。订阅和摘要记录不会受影响。"
+ALREADY_NEWCHAT_MESSAGE = "已在新对话中。"
 LINK_USAGE_MESSAGE = "用法：/link 绑定码"
 
 
@@ -76,8 +77,9 @@ class QQClient(botpy.Client):
             return
 
         if content == NEWCHAT_COMMAND:
-            start_new_conversation_context("qq", openid)
-            await message.reply(msg_type=0, content=NEWCHAT_MESSAGE)
+            result = start_new_conversation_context("qq", openid)
+            reply = NEWCHAT_MESSAGE if result.created else ALREADY_NEWCHAT_MESSAGE
+            await message.reply(msg_type=0, content=reply)
             return
 
         link_code = _parse_command_arg(content, LINK_COMMAND)

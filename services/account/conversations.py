@@ -17,6 +17,12 @@ class ConversationContext:
     version: int
 
 
+@dataclass(frozen=True)
+class NewConversationResult:
+    context: ConversationContext | None
+    created: bool
+
+
 def get_or_create_active_conversation(
     *,
     user_id: int,
@@ -63,7 +69,7 @@ def start_new_conversation(
     user_id: int,
     platform: str,
     platform_user_id: str,
-) -> ConversationContext:
+) -> NewConversationResult:
     platform = platform.strip()
     platform_user_id = str(platform_user_id).strip()
     if not platform or not platform_user_id:
@@ -71,14 +77,35 @@ def start_new_conversation(
 
     with Session(get_engine()) as session:
         now = utc_now()
-        # 兼容历史异常数据：如果有多条 active，会一次性全部结束。
+        # 如果当前没有消息，不创建新的空版本，避免 /newchat 连点产生空记录。
         active_conversations = session.exec(
-            select(Conversation).where(
+            select(Conversation)
+            .where(
                 Conversation.platform == platform,
                 Conversation.platform_user_id == platform_user_id,
                 Conversation.is_active == True,  # noqa: E712
             )
+            .order_by(Conversation.version.desc())
         ).all()
+        if not active_conversations:
+            return NewConversationResult(context=None, created=False)
+
+        latest_active = active_conversations[0]
+        if latest_active.id is not None and not _conversation_has_messages(
+            session,
+            latest_active.id,
+        ):
+            latest_active.user_id = user_id
+            latest_active.updated_at = now
+            session.add(latest_active)
+            session.commit()
+            session.refresh(latest_active)
+            return NewConversationResult(
+                context=_to_context(latest_active),
+                created=False,
+            )
+
+        # 兼容历史异常数据：如果有多条 active，会一次性全部结束。
         for conversation in active_conversations:
             conversation.is_active = False
             conversation.ended_at = now
@@ -100,7 +127,10 @@ def start_new_conversation(
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
-        return _to_context(conversation)
+        return NewConversationResult(
+            context=_to_context(conversation),
+            created=True,
+        )
 
 
 def append_message(
@@ -144,6 +174,13 @@ def _get_active_conversation(
         )
         .order_by(Conversation.version.desc())
     ).first()
+
+
+def _conversation_has_messages(session: Session, conversation_id: int) -> bool:
+    message_count = session.exec(
+        select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
+    ).one()
+    return int(message_count) > 0
 
 
 def _next_version(
