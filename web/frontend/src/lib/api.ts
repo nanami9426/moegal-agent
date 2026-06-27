@@ -1,4 +1,4 @@
-export type Platform = "tg" | "qq";
+export type Platform = "web" | "tg" | "qq";
 export type ChatRole = "user" | "assistant";
 
 export interface SubscriptionItem {

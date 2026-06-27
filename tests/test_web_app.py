@@ -123,14 +123,18 @@ class WebApiTest(unittest.TestCase):
             self.assertEqual(blank.status_code, 422)
 
     def test_admin_link_code_binds_bot_account_and_lists_bindings(self) -> None:
-        token = self._register_web_user()[0]
+        token, web_user_id = self._register_web_user()
 
-        empty = self.client.get(
+        initial_accounts = self.client.get(
             "/api/admin/bindings",
             headers=self._auth_headers(token),
         )
-        self.assertEqual(empty.status_code, 200)
-        self.assertEqual(empty.json(), {"bindings": [], "max_per_platform": 2})
+        self.assertEqual(initial_accounts.status_code, 200)
+        initial_payload = initial_accounts.json()
+        self.assertEqual(initial_payload["max_per_platform"], 2)
+        self.assertEqual(len(initial_payload["bindings"]), 1)
+        self.assertEqual(initial_payload["bindings"][0]["platform"], "web")
+        self.assertEqual(initial_payload["bindings"][0]["platform_user_id"], str(web_user_id))
 
         code_response = self.client.post(
             "/api/admin/link-codes",
@@ -158,10 +162,79 @@ class WebApiTest(unittest.TestCase):
         )
         self.assertEqual(bindings.status_code, 200)
         binding_payload = bindings.json()["bindings"]
-        self.assertEqual(len(binding_payload), 1)
-        self.assertEqual(binding_payload[0]["platform"], "tg")
-        self.assertEqual(binding_payload[0]["platform_user_id"], "42")
-        self.assertEqual(binding_payload[0]["display_name"], "Test User")
+        self.assertEqual(len(binding_payload), 2)
+        self.assertEqual(binding_payload[0]["platform"], "web")
+        self.assertEqual(binding_payload[1]["platform"], "tg")
+        self.assertEqual(binding_payload[1]["platform_user_id"], "42")
+        self.assertEqual(binding_payload[1]["display_name"], "Test User")
+
+    def test_admin_can_read_current_web_account_resources(self) -> None:
+        token, web_user_id = self._register_web_user()
+        login_id = str(web_user_id)
+
+        with Session(self.engine) as session:
+            web_user = session.get(User, web_user_id)
+            self.assertIsNotNone(web_user)
+            session.add(
+                Subscription(
+                    user_id=web_user_id,
+                    type="keyword",
+                    target="网页订阅",
+                    display_name="网页订阅",
+                    enabled=True,
+                    created_at=datetime(2026, 1, 3, 12, tzinfo=timezone.utc),
+                    updated_at=datetime(2026, 1, 3, 12, tzinfo=timezone.utc),
+                )
+            )
+            conversation = Conversation(
+                user_id=web_user_id,
+                platform="web",
+                platform_user_id=login_id,
+                thread_id="web-admin-thread",
+                version=0,
+                is_active=True,
+                created_at=datetime(2026, 1, 3, 13, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 1, 3, 13, tzinfo=timezone.utc),
+            )
+            session.add(conversation)
+            session.flush()
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="user",
+                    content="后台能看到 Web 吗",
+                    metadata_json={},
+                    created_at=datetime(2026, 1, 3, 13, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.commit()
+
+        subscriptions = self.client.get(
+            "/api/subscriptions",
+            params={"platform": "web", "platform_user_id": login_id},
+            headers=self._auth_headers(token),
+        )
+        chat_history = self.client.get(
+            "/api/chat-history",
+            params={"platform": "web", "platform_user_id": login_id},
+            headers=self._auth_headers(token),
+        )
+
+        self.assertEqual(subscriptions.status_code, 200)
+        self.assertEqual(subscriptions.json()["subscriptions"][0]["target"], "网页订阅")
+        self.assertEqual(chat_history.status_code, 200)
+        self.assertEqual(
+            chat_history.json()["conversations"][0]["messages"][0]["content"],
+            "后台能看到 Web 吗",
+        )
+
+        other_token, other_web_user_id = self._register_web_user(username="Other Web")
+        forbidden = self.client.get(
+            "/api/chat-history",
+            params={"platform": "web", "platform_user_id": str(web_user_id)},
+            headers=self._auth_headers(other_token),
+        )
+        self.assertEqual(forbidden.status_code, 403)
 
     def test_link_code_respects_platform_binding_limit_env(self) -> None:
         token = self._register_web_user()[0]

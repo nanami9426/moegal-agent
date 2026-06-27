@@ -120,15 +120,17 @@ Web 端聊天机器人使用独立的简单账号体系：
 - `POST /api/auth/login`：使用 10 位用户 ID 和密码登录并返回 bearer token。
 - `GET /api/auth/me`：读取当前 Web 用户。
 - `POST /api/admin/link-codes`：登录后申请通用绑定码，绑定码 10 分钟有效。
-- `GET /api/admin/bindings`：读取当前 Web 用户已经绑定的 TG/QQ 账号。
-- `GET /api/subscriptions?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回用户启用中的订阅。
-- `GET /api/chat-history?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回用户会话和消息记录。
+- `GET /api/admin/bindings`：读取当前 Web 账号和已经绑定的 TG/QQ 账号。
+- `GET /api/subscriptions?platform=web&platform_user_id=1000000000`：返回当前 Web 用户启用中的订阅。
+- `GET /api/subscriptions?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回 Bot 用户启用中的订阅。
+- `GET /api/chat-history?platform=web&platform_user_id=1000000000`：返回当前 Web 用户会话和消息记录。
+- `GET /api/chat-history?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回 Bot 用户会话和消息记录。
 - `POST /api/web-chat/messages`：发送 Web 聊天消息。
 - `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
 - `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
 
 绑定流程：Web 用户在 `/admin` 申请绑定码，然后在 Telegram 或 QQ bot 内发送
-`/link 绑定码`。绑定成功后，管理后台只能查看当前 Web 用户已绑定账号的订阅和聊天历史。
+`/link 绑定码`。绑定成功后，管理后台可以查看当前 Web 账号和已绑定 Bot 账号的订阅和聊天历史。
 暂不提供解绑功能。
 
 ## Frontend
@@ -144,8 +146,8 @@ npm run dev
 本地联调时先启动 FastAPI，或直接使用 `./scripts/start_with_gateway.sh`。前端开发服务会把
 `/api` 代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
 
-前端根路径 `/` 是 Web 聊天页，`/admin` 是需要 Web 登录的管理后台。TG/QQ 数据必须先完成
-`/link` 绑定后才能查看。
+前端根路径 `/` 是 Web 聊天页，`/admin` 是需要 Web 登录的管理后台。Web 账号数据默认可查看；
+TG/QQ 数据必须先完成 `/link` 绑定后才能查看。
 
 ## QQ 图片回图配置
 

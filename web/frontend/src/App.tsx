@@ -350,9 +350,9 @@ function AdminDashboard() {
         <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
           <Card className="h-fit">
             <CardHeader>
-              <CardTitle>绑定账号</CardTitle>
+              <CardTitle>可查看账号</CardTitle>
               <CardDescription>
-                每个平台最多绑定 {maxPerPlatform} 个账号。
+                Web 账号默认可查看，Bot 账号需要绑定；每个平台最多绑定 {maxPerPlatform} 个。
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -408,7 +408,7 @@ function AdminDashboard() {
 
               <div className="mb-5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>已绑定账号</Label>
+                  <Label>账号列表</Label>
                   <Button
                     disabled={isLoadingBindings}
                     onClick={() => void refreshBindings()}
@@ -422,7 +422,7 @@ function AdminDashboard() {
                 </div>
                 {bindings.length === 0 ? (
                   <div className="rounded-md border border-dashed bg-background p-4 text-sm text-muted-foreground">
-                    还没有绑定账号。
+                    暂无可查看账号。
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1143,7 +1143,7 @@ function StatusPill({
 
 function Overview({ data }: { data: DashboardData | null }) {
   if (!data) {
-    return <EmptyState title="等待查询" description="选择已绑定账号后查看订阅和聊天记录。" />;
+    return <EmptyState title="等待查询" description="选择账号后查看订阅和聊天记录。" />;
   }
 
   return (
@@ -1402,6 +1402,9 @@ function showResourceToast(platform: Platform, platformUserId: string, payload: 
 }
 
 function formatPlatform(platform: Platform) {
+  if (platform === "web") {
+    return "Web";
+  }
   return platform === "tg" ? "Telegram" : "QQ";
 }
 

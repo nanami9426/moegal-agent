@@ -77,7 +77,7 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     summary="查询用户启用订阅",
     description=(
         "管理后台接口。根据 bearer token 识别当前 Web 用户，"
-        "仅允许读取已绑定 Bot 账号的启用订阅。"
+        "仅允许读取当前 Web 账号或已绑定 Bot 账号的启用订阅。"
     ),
 )
 def get_subscriptions(
@@ -85,12 +85,12 @@ def get_subscriptions(
     platform_user_id: str = Query(...),
     current_user: AuthenticatedWebUser = Depends(_require_web_user),
 ) -> SubscriptionsResponse:
-    # 管理后台只能读取当前 Web 用户已经绑定过的 Bot 账号数据。
-    platform = _normalize_bot_platform_query(platform)
+    # 管理后台可读取当前 Web 用户自己的数据，以及已经绑定过的 Bot 账号数据。
+    platform = _normalize_admin_platform_query(platform)
     platform_user_id = _normalize_required_query(platform_user_id, "platform_user_id")
 
     with Session(get_engine()) as session:
-        user = _get_bound_bot_user(session, current_user, platform, platform_user_id)
+        user = _get_admin_visible_user(session, current_user, platform, platform_user_id)
 
         subscriptions = session.exec(
             select(Subscription)
@@ -115,7 +115,7 @@ def get_subscriptions(
     summary="查询用户聊天历史",
     description=(
         "管理后台接口。根据 bearer token 识别当前 Web 用户，"
-        "仅允许读取已绑定 Bot 账号的会话和消息记录。"
+        "仅允许读取当前 Web 账号或已绑定 Bot 账号的会话和消息记录。"
     ),
 )
 def get_chat_history(
@@ -125,11 +125,11 @@ def get_chat_history(
     message_limit: int = Query(100, ge=1, le=500),
     current_user: AuthenticatedWebUser = Depends(_require_web_user),
 ) -> ChatHistoryResponse:
-    platform = _normalize_bot_platform_query(platform)
+    platform = _normalize_admin_platform_query(platform)
     platform_user_id = _normalize_required_query(platform_user_id, "platform_user_id")
 
     with Session(get_engine()) as session:
-        _get_bound_bot_user(session, current_user, platform, platform_user_id)
+        _get_admin_visible_user(session, current_user, platform, platform_user_id)
         return _build_chat_history(
             session,
             platform,
@@ -142,17 +142,34 @@ def get_chat_history(
 @router.get(
     "/admin/bindings",
     response_model=AdminBindingsResponse,
-    summary="读取当前 Web 用户的 Bot 绑定",
-    description="管理后台接口。根据 bearer token 返回当前 Web 用户已经绑定的 TG/QQ 账号。",
+    summary="读取当前 Web 用户可查看账号",
+    description="管理后台接口。返回当前 Web 账号，以及当前 Web 用户已经绑定的 TG/QQ 账号。",
 )
 def get_admin_bindings(
     current_user: AuthenticatedWebUser = Depends(_require_web_user),
 ) -> AdminBindingsResponse:
+    with Session(get_engine()) as session:
+        web_user = _get_user(session, "web", current_user.login_id)
+        if web_user is None or web_user.id != current_user.user_id:
+            raise HTTPException(status_code=401, detail="Invalid web user.")
+
+    accounts = [
+        PlatformBindingItem(
+            id=current_user.user_id,
+            platform="web",
+            platform_user_id=current_user.login_id,
+            username=current_user.username,
+            display_name=current_user.username,
+            bound_at=web_user.created_at,
+        )
+    ]
+    accounts.extend(
+        PlatformBindingItem.model_validate(binding)
+        for binding in list_platform_bindings(web_user_id=current_user.user_id)
+    )
+
     return AdminBindingsResponse(
-        bindings=[
-            PlatformBindingItem.model_validate(binding)
-            for binding in list_platform_bindings(web_user_id=current_user.user_id)
-        ],
+        bindings=accounts,
         max_per_platform=get_max_bindings_per_platform(),
     )
 
@@ -332,11 +349,32 @@ def _get_user(
     ).first()
 
 
-def _normalize_bot_platform_query(platform: str) -> str:
+def _normalize_admin_platform_query(platform: str) -> str:
+    normalized = _normalize_required_query(platform, "platform").lower()
+    if normalized == "web":
+        return normalized
+
     try:
-        return normalize_bot_platform(_normalize_required_query(platform, "platform"))
+        return normalize_bot_platform(normalized)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _get_admin_visible_user(
+    session: Session,
+    current_user: AuthenticatedWebUser,
+    platform: str,
+    platform_user_id: str,
+) -> User:
+    if platform == "web":
+        if platform_user_id != current_user.login_id:
+            raise HTTPException(status_code=403, detail="只能查看当前 Web 用户的数据。")
+        user = _get_user(session, "web", current_user.login_id)
+        if user is None or user.id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="只能查看当前 Web 用户的数据。")
+        return user
+
+    return _get_bound_bot_user(session, current_user, platform, platform_user_id)
 
 
 def _get_bound_bot_user(
