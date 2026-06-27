@@ -79,15 +79,16 @@ uv sync
 uv run python main.py
 ```
 
-如果要通过 Go gateway 转发 LLM 请求，可以用脚本同时启动 gateway 和 Python 项目：
+如果要通过 Go gateway 转发 LLM 请求，可以用脚本同时启动 gateway、FastAPI Web API 和 Python Bot：
 
 ```bash
 ./scripts/start_with_gateway.sh
 ```
 
-脚本只负责读取 `.env`、后台启动本地 gateway、再启动 Python 项目。Python 是否连接
-gateway 由 `.env` 中的 `MOEGAL_LLM_GATEWAY_BASE_URL` 决定。传给脚本的参数会原样传给
-`main.py`，例如：
+脚本会读取 `.env`、后台启动本地 gateway 和 FastAPI，再启动 Python Bot。Python 是否连接
+gateway 由 `.env` 中的 `MOEGAL_LLM_GATEWAY_BASE_URL` 决定。FastAPI 默认监听
+`127.0.0.1:8000`，可以用 `MOEGAL_WEB_HOST`、`MOEGAL_WEB_PORT` 覆盖；设置
+`MOEGAL_WEB_RELOAD=1` 可启用 uvicorn reload。传给脚本的参数会原样传给 `main.py`，例如：
 
 ```bash
 ./scripts/start_with_gateway.sh --bot qq
@@ -105,7 +106,8 @@ RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-comp
 
 ## Web API
 
-前端只读接口由 FastAPI 提供，入口在 `web/` 包。启动 Web API：
+前端只读接口由 FastAPI 提供，入口在 `web/` 包。如果不使用
+`scripts/start_with_gateway.sh`，也可以单独启动 Web API：
 
 ```bash
 uv run uvicorn web.app:app --reload
@@ -124,12 +126,12 @@ uv run uvicorn web.app:app --reload
 
 ```bash
 cd web/frontend
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
-本地联调时先启动 FastAPI：`uv run uvicorn web.app:app --reload`。前端开发服务会把 `/api`
-代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
+本地联调时先启动 FastAPI，或直接使用 `./scripts/start_with_gateway.sh`。前端开发服务会把
+`/api` 代理到 `http://127.0.0.1:8000`，也可以通过 `VITE_API_BASE_URL` 指定后端地址。
 
 ## QQ 图片回图配置
 
