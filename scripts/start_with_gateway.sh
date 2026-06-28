@@ -87,14 +87,14 @@ wait_for_web() {
 }
 
 start_web() {
-	local reload_args=()
+	local cmd=(uv run uvicorn web.app:app --host "${WEB_HOST}" --port "${WEB_PORT}")
 	if [[ "${MOEGAL_WEB_RELOAD:-0}" == "1" ]]; then
-		reload_args=(--reload)
+		cmd+=(--reload)
 	fi
 
 	(
 		cd "${ROOT_DIR}"
-		uv run uvicorn web.app:app --host "${WEB_HOST}" --port "${WEB_PORT}" "${reload_args[@]}"
+		"${cmd[@]}"
 	) &
 	web_pid=$!
 	wait_for_web
