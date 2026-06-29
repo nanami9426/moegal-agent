@@ -72,6 +72,16 @@ def _build_text_update(text: str):
 
 
 class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.upsert_user_patcher = patch(
+            "services.image_workflow.upsert_user",
+            return_value=SimpleNamespace(id=1_000_000_001),
+        )
+        self.upsert_user_patcher.start()
+
+    def tearDown(self) -> None:
+        self.upsert_user_patcher.stop()
+
     async def test_translate_command_prompts_for_picture(self) -> None:
         update = SimpleNamespace(
             message=SimpleNamespace(reply_text=AsyncMock()),
@@ -102,7 +112,11 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn(PENDING_TRANSLATE_PHOTO_KEY, context.user_data)
         is_manga_image_bytes_mock.assert_not_called()
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         message.reply_text.assert_not_awaited()
         message.reply_photo.assert_awaited_once()
         sent_photo = message.reply_photo.await_args.kwargs["photo"]
@@ -135,6 +149,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         is_manga_image_bytes_mock.assert_called_once_with(raw_image)
         route_image_message_mock.assert_awaited_once()
         self.assertEqual(route_image_message_mock.await_args.args[:3], ("tg", "42", raw_image))
+        self.assertEqual(route_image_message_mock.await_args.kwargs["user_id"], 1_000_000_001)
         message.reply_text.assert_awaited_once_with("图片回答")
         message.reply_photo.assert_not_awaited()
         message.reply_document.assert_not_awaited()
@@ -161,7 +176,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             context.user_data[PENDING_COMIC_PHOTO_KEY],
             PendingImage(file_bytes=raw_image, caption="这张图讲什么"),
         )
-        classify_intent_mock.assert_awaited_once_with("这张图讲什么")
+        classify_intent_mock.assert_awaited_once_with("这张图讲什么", user_id=1_000_000_001)
         message.reply_text.assert_awaited_once_with("这张图需要我帮你翻译吗？")
         translate_image_bytes_mock.assert_not_awaited()
         route_image_message_mock.assert_not_awaited()
@@ -183,8 +198,12 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             await handle_text(update, context)
 
         self.assertNotIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
-        classify_intent_mock.assert_awaited_once_with("翻译")
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        classify_intent_mock.assert_awaited_once_with("翻译", user_id=1_000_000_001)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         message.reply_text.assert_not_awaited()
         message.reply_photo.assert_awaited_once()
         message.reply_document.assert_awaited_once()
@@ -206,10 +225,11 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             await handle_text(update, context)
 
         self.assertNotIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
-        classify_intent_mock.assert_awaited_once_with("不用翻译了啊")
+        classify_intent_mock.assert_awaited_once_with("不用翻译了啊", user_id=1_000_000_001)
         route_image_message_mock.assert_awaited_once()
         self.assertEqual(route_image_message_mock.await_args.args[:3], ("tg", "42", raw_image))
         self.assertEqual(route_image_message_mock.await_args.kwargs["prompt"], "讲讲画面")
+        self.assertEqual(route_image_message_mock.await_args.kwargs["user_id"], 1_000_000_001)
         message.reply_text.assert_awaited_once_with("视觉回答")
 
     async def test_handle_text_asks_intent_again_when_llm_is_unsure(self) -> None:
@@ -230,7 +250,7 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
             await handle_text(update, context)
 
         self.assertIn(PENDING_COMIC_PHOTO_KEY, context.user_data)
-        classify_intent_mock.assert_awaited_once_with("等一下")
+        classify_intent_mock.assert_awaited_once_with("等一下", user_id=1_000_000_001)
         message.reply_text.assert_awaited_once_with("这张图需要我帮你翻译吗？")
         translate_image_bytes_mock.assert_not_awaited()
         route_image_message_mock.assert_not_awaited()
@@ -274,9 +294,13 @@ class TelegramHandlersTest(unittest.IsolatedAsyncioTestCase):
         ):
             await handel_receive_picture(update, context)
 
-        classify_intent_mock.assert_awaited_once_with("帮我翻译")
+        classify_intent_mock.assert_awaited_once_with("帮我翻译", user_id=1_000_000_001)
         is_manga_image_bytes_mock.assert_not_called()
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         message.reply_photo.assert_awaited_once()
         message.reply_document.assert_awaited_once()
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,6 @@ import (
 
 type chatCompletionRequest struct {
 	Model string `json:"model"`
-	User  string `json:"user"`
 }
 
 type chatCompletionResponse struct {
@@ -94,7 +94,7 @@ func printTokenUsage(c *gin.Context, requestInfo chatCompletionRequest, response
 	if err := json.Unmarshal(responseBody, &response); err != nil || response.Usage == nil {
 		log.Printf(
 			"[usage] user=%s model=%s status=%d usage=missing elapsed=%s",
-			userLabel(c, requestInfo),
+			userLabel(c),
 			modelLabel(requestInfo.Model, response.Model),
 			c.Writer.Status(),
 			elapsed.Round(time.Millisecond),
@@ -104,7 +104,7 @@ func printTokenUsage(c *gin.Context, requestInfo chatCompletionRequest, response
 
 	log.Printf(
 		"[usage] user=%s model=%s prompt_tokens=%d completion_tokens=%d total_tokens=%d status=%d elapsed=%s",
-		userLabel(c, requestInfo),
+		userLabel(c),
 		modelLabel(requestInfo.Model, response.Model),
 		response.Usage.PromptTokens,
 		response.Usage.CompletionTokens,
@@ -114,15 +114,9 @@ func printTokenUsage(c *gin.Context, requestInfo chatCompletionRequest, response
 	)
 }
 
-func userLabel(c *gin.Context, requestInfo chatCompletionRequest) string {
-	if requestInfo.User != "" {
-		return requestInfo.User
-	}
-	if userID := c.GetHeader("X-User-ID"); userID != "" {
+func userLabel(c *gin.Context) string {
+	if userID := strings.TrimSpace(c.GetHeader("X-User-ID")); userID != "" {
 		return userID
-	}
-	if clientIP := c.ClientIP(); clientIP != "" {
-		return clientIP
 	}
 	return "unknown"
 }

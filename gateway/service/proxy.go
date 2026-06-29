@@ -30,28 +30,23 @@ func NewLLMProxy(upstreamBaseURL string) (http.Handler, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 5 * time.Minute
 
-	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
-	proxy.FlushInterval = -1 // 立刻转发
-	proxy.Transport = transport
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-		writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
-	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(req *httputil.ProxyRequest) {
+			req.SetURL(upstreamURL)
 
-	// Director func(*http.Request) 的职责是修改即将转发出去的 req
-	// 默认 director
-	director := proxy.Director
-
-	// 替换成自己的 director
-	proxy.Director = func(req *http.Request) {
-		director(req)
-		req.Host = upstreamURL.Host
-
-		if _, ok := req.Header["User-Agent"]; !ok {
-			req.Header.Set("User-Agent", "")
-		}
-		// UsageLogger needs the upstream response body to stay inspectable JSON.
-		// Some OpenAI clients advertise gzip/br; avoid compressed upstream bodies here.
-		req.Header.Set("Accept-Encoding", "identity")
+			if _, ok := req.Out.Header["User-Agent"]; !ok {
+				req.Out.Header.Set("User-Agent", "")
+			}
+			// UsageLogger needs the upstream response body to stay inspectable JSON.
+			// Some OpenAI clients advertise gzip/br; avoid compressed upstream bodies here.
+			req.Out.Header.Set("Accept-Encoding", "identity")
+			req.Out.Header.Del("X-User-ID")
+		},
+		FlushInterval: -1, // 立刻转发
+		Transport:     transport,
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
+		},
 	}
 
 	return proxy, nil

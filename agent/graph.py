@@ -14,7 +14,7 @@ from agent.state import MoegalState
 from agent.tools import TOOLS
 from db.session import get_psycopg_conninfo
 from services.account.users import upsert_user
-from utils.llm import get_base_url
+from utils.llm import get_base_url, llm_user_headers
 
 
 SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。
@@ -55,7 +55,10 @@ def _get_model_with_tools() -> Any:
 
 async def call_model(state: MoegalState) -> dict[str, list[BaseMessage]]:
     messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
-    response = await _get_model_with_tools().ainvoke(messages)
+    response = await _get_model_with_tools().ainvoke(
+        messages,
+        extra_headers=llm_user_headers(state.get("user_id")),
+    )
     return {"messages": [response]}
 
 

@@ -9,6 +9,7 @@ from services.manga_translate.translate import (
     is_manga_image_bytes,
     translate_image_bytes,
 )
+from services.account.users import upsert_user
 from utils.logger import logger
 
 
@@ -40,20 +41,24 @@ class ImageWorkflowResult:
     pending_image: PendingImage | None = None
 
 
-async def _classify_image_translation_intent(text: str, platform_label: str) -> str:
+async def _classify_image_translation_intent(text: str, platform_label: str, *, user_id: int) -> str:
     if not text.strip():
         return "unknown"
 
     try:
-        return await classify_image_translation_intent(text)
+        return await classify_image_translation_intent(text, user_id=user_id)
     except Exception:
         logger.exception("%s image translation intent classification failed", platform_label)
         return "unknown"
 
 
-async def _translate_image(file_bytes: bytes, platform_label: str) -> ImageWorkflowResult:
+async def _translate_image(file_bytes: bytes, platform_label: str, *, user_id: int) -> ImageWorkflowResult:
     try:
-        _, _, translated_image = await translate_image_bytes(file_bytes, include_res_img=True)
+        _, _, translated_image = await translate_image_bytes(
+            file_bytes,
+            include_res_img=True,
+            user_id=user_id,
+        )
     except TranslateInputError as exc:
         return ImageWorkflowResult(action="text", text=exc.message)
     except Exception:
@@ -89,6 +94,7 @@ async def _answer_image(
     display_name: str | None,
     language_code: str | None,
     platform_label: str,
+    user_id: int,
 ) -> ImageWorkflowResult:
     try:
         result = await route_image_message(
@@ -99,6 +105,7 @@ async def _answer_image(
             username=username,
             display_name=display_name,
             language_code=language_code,
+            user_id=user_id,
         )
     except Exception:
         logger.exception("%s picture understanding failed", platform_label)
@@ -121,15 +128,23 @@ async def handle_incoming_image(
 ) -> ImageWorkflowResult:
     caption = (caption or "").strip()
     label = platform_label or platform
+    user = upsert_user(
+        platform=platform,
+        platform_user_id=platform_user_id,
+        username=username,
+        display_name=display_name,
+        language_code=language_code,
+    )
+    user_id = user.id
 
     should_translate = force_translate
     if not should_translate and caption:
         should_translate = (
-            await _classify_image_translation_intent(caption, label)
+            await _classify_image_translation_intent(caption, label, user_id=user_id)
         ) == "translate"
 
     if should_translate:
-        return await _translate_image(file_bytes, label)
+        return await _translate_image(file_bytes, label, user_id=user_id)
 
     try:
         is_manga = await asyncio.to_thread(is_manga_image_bytes, file_bytes)
@@ -146,6 +161,7 @@ async def handle_incoming_image(
             display_name=display_name,
             language_code=language_code,
             platform_label=label,
+            user_id=user_id,
         )
 
     if is_manga:
@@ -164,6 +180,7 @@ async def handle_incoming_image(
         display_name=display_name,
         language_code=language_code,
         platform_label=label,
+        user_id=user_id,
     )
 
 
@@ -179,10 +196,18 @@ async def handle_pending_image_reply(
     platform_label: str | None = None,
 ) -> ImageWorkflowResult:
     label = platform_label or platform
-    intent = await _classify_image_translation_intent(text, label)
+    user = upsert_user(
+        platform=platform,
+        platform_user_id=platform_user_id,
+        username=username,
+        display_name=display_name,
+        language_code=language_code,
+    )
+    user_id = user.id
+    intent = await _classify_image_translation_intent(text, label, user_id=user_id)
 
     if intent == "translate":
-        return await _translate_image(pending_image.file_bytes, label)
+        return await _translate_image(pending_image.file_bytes, label, user_id=user_id)
 
     if intent == "skip":
         return await _answer_image(
@@ -194,6 +219,7 @@ async def handle_pending_image_reply(
             display_name=display_name,
             language_code=language_code,
             platform_label=label,
+            user_id=user_id,
         )
 
     return ImageWorkflowResult(

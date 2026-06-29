@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from agent import graph as agent_graph
 from agent import router
 
 
@@ -113,11 +114,37 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             {"configurable": {"thread_id": "00000000-0000-4000-8000-000000000099"}},
         )
 
+    async def test_call_model_sends_x_user_id_header(self) -> None:
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="ok")))
+
+        with patch.object(agent_graph, "_get_model_with_tools", return_value=model):
+            result = await agent_graph.call_model(
+                {
+                    "messages": [HumanMessage(content="你好")],
+                    "platform": "tg",
+                    "platform_user_id": "42",
+                    "user_id": 1_000_000_001,
+                    "username": None,
+                    "display_name": None,
+                    "language_code": None,
+                }
+            )
+
+        self.assertEqual(result, {"messages": [AIMessage(content="ok")]})
+        model.ainvoke.assert_awaited_once()
+        self.assertEqual(
+            model.ainvoke.await_args.kwargs["extra_headers"],
+            {"X-User-ID": "1000000001"},
+        )
+
     async def test_route_image_message_builds_multimodal_message(self) -> None:
         image_bytes = b"image-bytes"
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="图片回答")))
 
-        with patch.object(router, "_get_image_model", return_value=model):
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1_000_000_001)),
+            patch.object(router, "_get_image_model", return_value=model),
+        ):
             result = await router.route_image_message(
                 "tg",
                 "42",
@@ -140,6 +167,10 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
                     + base64.b64encode(image_bytes).decode("utf8")
                 },
             },
+        )
+        self.assertEqual(
+            model.ainvoke.await_args.kwargs["extra_headers"],
+            {"X-User-ID": "1000000001"},
         )
 
     async def test_route_image_message_rejects_empty_image_without_model_call(self) -> None:
@@ -177,7 +208,10 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="skip")))
 
         with patch.object(router, "_get_intent_model", return_value=model):
-            result = await router.classify_image_translation_intent("不用翻译了啊")
+            result = await router.classify_image_translation_intent(
+                "不用翻译了啊",
+                user_id=1_000_000_001,
+            )
 
         self.assertEqual(result, "skip")
         model.ainvoke.assert_awaited_once()
@@ -185,12 +219,19 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(messages[0], SystemMessage)
         self.assertIsInstance(messages[1], HumanMessage)
         self.assertEqual(messages[1].content, "不用翻译了啊")
+        self.assertEqual(
+            model.ainvoke.await_args.kwargs["extra_headers"],
+            {"X-User-ID": "1000000001"},
+        )
 
     async def test_classify_image_translation_intent_returns_unknown_for_bad_label(self) -> None:
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="maybe")))
 
         with patch.object(router, "_get_intent_model", return_value=model):
-            result = await router.classify_image_translation_intent("等一下")
+            result = await router.classify_image_translation_intent(
+                "等一下",
+                user_id=1_000_000_001,
+            )
 
         self.assertEqual(result, "unknown")
 

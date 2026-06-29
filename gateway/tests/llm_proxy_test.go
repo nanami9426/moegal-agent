@@ -31,6 +31,15 @@ func TestRouterForwardsOpenAICompatibleRequest(t *testing.T) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("content-type = %q, want application/json", r.Header.Get("Content-Type"))
 		}
+		if r.Header.Get("X-Forwarded-For") != "" {
+			t.Errorf("x-forwarded-for = %q, want stripped", r.Header.Get("X-Forwarded-For"))
+		}
+		if r.Header.Get("X-Forwarded-Host") != "" {
+			t.Errorf("x-forwarded-host = %q, want stripped", r.Header.Get("X-Forwarded-Host"))
+		}
+		if r.Header.Get("X-Forwarded-Proto") != "" {
+			t.Errorf("x-forwarded-proto = %q, want stripped", r.Header.Get("X-Forwarded-Proto"))
+		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -62,6 +71,9 @@ func TestRouterForwardsOpenAICompatibleRequest(t *testing.T) {
 	}
 	req.Header.Set("Authorization", "Bearer test-key")
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "203.0.113.1")
+	req.Header.Set("X-Forwarded-Host", "spoofed.example")
+	req.Header.Set("X-Forwarded-Proto", "https")
 
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -90,8 +102,11 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(body) != `{"model":"test-model","user":"user-1","messages":[]}` {
+		if string(body) != `{"model":"test-model","user":"legacy-user","messages":[]}` {
 			t.Errorf("body = %s", body)
+		}
+		if r.Header.Get("X-User-ID") != "" {
+			t.Errorf("x-user-id = %q, want stripped before upstream", r.Header.Get("X-User-ID"))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -114,11 +129,18 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 	gateway := httptest.NewServer(router.Router())
 	defer gateway.Close()
 
-	response, err := http.Post(
+	request, err := http.NewRequest(
+		http.MethodPost,
 		gateway.URL+"/v1/chat/completions",
-		"application/json",
-		strings.NewReader(`{"model":"test-model","user":"user-1","messages":[]}`),
+		strings.NewReader(`{"model":"test-model","user":"legacy-user","messages":[]}`),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-User-ID", "1000000001")
+
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +153,7 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 
 	logText := logs.String()
 	for _, want := range []string{
-		"user=user-1",
+		"user=1000000001",
 		"model=test-model",
 		"prompt_tokens=11",
 		"completion_tokens=7",
@@ -140,6 +162,9 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 		if !strings.Contains(logText, want) {
 			t.Errorf("usage log = %q, want %q", logText, want)
 		}
+	}
+	if strings.Contains(logText, "user=legacy-user") {
+		t.Errorf("usage log = %q, must ignore body user", logText)
 	}
 }
 
@@ -201,6 +226,7 @@ func TestUsageLoggerPrintsTokenUsageWhenClientAcceptsCompression(t *testing.T) {
 
 	logText := logs.String()
 	for _, want := range []string{
+		"user=unknown",
 		"model=test-model",
 		"prompt_tokens=11",
 		"completion_tokens=7",

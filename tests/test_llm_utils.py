@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from utils.llm import get_base_url
+from utils.llm import get_base_url, llm_user_headers
 
 
 class LLMUtilsTest(unittest.TestCase):
@@ -25,6 +25,13 @@ class LLMUtilsTest(unittest.TestCase):
             clear=True,
         ):
             self.assertEqual(get_base_url(), "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+    def test_llm_user_headers_sets_x_user_id(self) -> None:
+        self.assertEqual(llm_user_headers(1_000_000_001), {"X-User-ID": "1000000001"})
+
+    def test_llm_user_headers_requires_user_id(self) -> None:
+        with self.assertRaises(ValueError):
+            llm_user_headers(None)
 
 
 if __name__ == "__main__":

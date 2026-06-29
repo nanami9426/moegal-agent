@@ -53,6 +53,16 @@ def _remote_upload_env(base_url: str = "https://static.example.com/moegal-qq") -
 
 
 class QQClientTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.upsert_user_patcher = patch(
+            "services.image_workflow.upsert_user",
+            return_value=SimpleNamespace(id=1_000_000_001),
+        )
+        self.upsert_user_patcher.start()
+
+    def tearDown(self) -> None:
+        self.upsert_user_patcher.stop()
+
     async def test_c2c_message_replies_once_with_original_message(self) -> None:
         client = _client()
         message = _message("  你好  ")
@@ -159,6 +169,7 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
         route_image_message_mock.assert_awaited_once()
         self.assertEqual(route_image_message_mock.await_args.args[:3], ("qq", "openid-1", raw_image))
         self.assertEqual(route_image_message_mock.await_args.kwargs["prompt"], "这是什么")
+        self.assertEqual(route_image_message_mock.await_args.kwargs["user_id"], 1_000_000_001)
         message.reply.assert_awaited_once_with(msg_type=0, content="图片回答")
 
     async def test_translate_command_translates_next_image(self) -> None:
@@ -188,7 +199,11 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
 
         command_message.reply.assert_awaited_once_with(msg_type=0, content="请发送要翻译的图片。")
         is_manga_mock.assert_not_called()
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         upload_mock.assert_called_once_with("translated_uuid.png", b"translated-image")
         client.api.post_c2c_file.assert_awaited_once_with(
             "openid-1",
@@ -224,9 +239,13 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
         ) as upload_mock:
             await client.on_c2c_message_create(message)
 
-        classify_intent_mock.assert_awaited_once_with("帮我翻译")
+        classify_intent_mock.assert_awaited_once_with("帮我翻译", user_id=1_000_000_001)
         is_manga_mock.assert_not_called()
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         upload_mock.assert_called_once_with("translated_uuid.png", b"translated-image")
         message.reply.assert_awaited_once_with(msg_type=7, media={"file_info": "media"})
 
@@ -251,7 +270,7 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
             client._pending_comic_images["openid-1"],
             PendingImage(file_bytes=raw_image, caption="这张图讲什么"),
         )
-        classify_intent_mock.assert_awaited_once_with("这张图讲什么")
+        classify_intent_mock.assert_awaited_once_with("这张图讲什么", user_id=1_000_000_001)
         translate_mock.assert_not_awaited()
         image_message.reply.assert_awaited_once_with(msg_type=0, content="这张图需要我帮你翻译吗？")
 
@@ -272,7 +291,11 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
             await client.on_c2c_message_create(text_message)
 
         self.assertNotIn("openid-1", client._pending_comic_images)
-        translate_image_bytes_mock.assert_awaited_once_with(raw_image, include_res_img=True)
+        translate_image_bytes_mock.assert_awaited_once_with(
+            raw_image,
+            include_res_img=True,
+            user_id=1_000_000_001,
+        )
         upload_mock.assert_called_once_with("translated_uuid.png", b"translated-image")
         text_message.reply.assert_awaited_once_with(msg_type=7, media={"file_info": "media"})
 
@@ -294,10 +317,11 @@ class QQClientTest(unittest.IsolatedAsyncioTestCase):
             await client.on_c2c_message_create(message)
 
         self.assertNotIn("openid-1", client._pending_comic_images)
-        classify_intent_mock.assert_awaited_once_with("不用翻译了啊")
+        classify_intent_mock.assert_awaited_once_with("不用翻译了啊", user_id=1_000_000_001)
         route_image_message_mock.assert_awaited_once()
         self.assertEqual(route_image_message_mock.await_args.args[:3], ("qq", "openid-1", b"raw-image"))
         self.assertEqual(route_image_message_mock.await_args.kwargs["prompt"], "讲讲画面")
+        self.assertEqual(route_image_message_mock.await_args.kwargs["user_id"], 1_000_000_001)
         message.reply.assert_awaited_once_with(msg_type=0, content="视觉回答")
 
     async def test_c2c_image_download_failure_replies_text_error(self) -> None:

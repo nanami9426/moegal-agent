@@ -52,7 +52,8 @@ class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
         first_is_waiting = asyncio.Event()
         calls = []
 
-        async def fake_translate_sentence(sentence: str) -> str:
+        async def fake_translate_sentence(sentence: str, *, user_id: int) -> str:
+            self.assertEqual(user_id, 1_000_000_001)
             calls.append(sentence)
             if sentence == "a":
                 first_is_waiting.set()
@@ -65,7 +66,7 @@ class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
             "services.manga_translate.translate.translate_sentence",
             AsyncMock(side_effect=fake_translate_sentence),
         ) as translate_sentence_mock:
-            result = await translate.translate_req(["a", "b"])
+            result = await translate.translate_req(["a", "b"], user_id=1_000_000_001)
 
         self.assertEqual(result, ["译a", "译b"])
         self.assertEqual(calls, ["a", "b"])
@@ -74,7 +75,7 @@ class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_translate_req_returns_empty_list_without_model(self) -> None:
         with patch("services.manga_translate.translate.get_translate_model") as get_model_mock:
-            result = await translate.translate_req([])
+            result = await translate.translate_req([], user_id=1_000_000_001)
 
         self.assertEqual(result, [])
         get_model_mock.assert_not_called()
@@ -84,21 +85,25 @@ class MangaTranslateTest(unittest.IsolatedAsyncioTestCase):
             "services.manga_translate.translate.translate_sentence",
             AsyncMock(return_value="译文"),
         ) as translate_sentence_mock:
-            result = await translate.translate_req(["  ", "hello"])
+            result = await translate.translate_req(["  ", "hello"], user_id=1_000_000_001)
 
         self.assertEqual(result, ["  ", "译文"])
-        translate_sentence_mock.assert_awaited_once_with("hello")
+        translate_sentence_mock.assert_awaited_once_with("hello", user_id=1_000_000_001)
 
     async def test_translate_sentence_strips_response_and_falls_back_to_source(self) -> None:
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content="  译文  ")))
         with patch("services.manga_translate.translate.get_translate_model", return_value=model):
-            result = await translate.translate_sentence("hello")
+            result = await translate.translate_sentence("hello", user_id=1_000_000_001)
 
         self.assertEqual(result, "译文")
+        self.assertEqual(
+            model.ainvoke.await_args.kwargs["extra_headers"],
+            {"X-User-ID": "1000000001"},
+        )
 
         model.ainvoke.return_value = SimpleNamespace(content="  ")
         with patch("services.manga_translate.translate.get_translate_model", return_value=model):
-            result = await translate.translate_sentence("hello")
+            result = await translate.translate_sentence("hello", user_id=1_000_000_001)
 
         self.assertEqual(result, "hello")
 

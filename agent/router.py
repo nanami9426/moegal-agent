@@ -14,7 +14,7 @@ from services.account.conversations import (
     start_new_conversation,
 )
 from services.account.users import upsert_user
-from utils.llm import get_base_url
+from utils.llm import get_base_url, llm_user_headers
 
 
 IMAGE_SYSTEM_PROMPT = """你是 Moegal Agent，一个面向二次元用户的轻量助手。
@@ -192,11 +192,21 @@ async def route_image_message(
     username: str | None = None,
     display_name: str | None = None,
     language_code: str | None = None,
+    user_id: int | None = None,
 ) -> str:
     if not image_bytes:
         return "图片为空，无法识别。"
 
-    _ = (platform, platform_user_id, username, display_name, language_code)
+    if user_id is None:
+        user = upsert_user(
+            platform=platform,
+            platform_user_id=platform_user_id,
+            username=username,
+            display_name=display_name,
+            language_code=language_code,
+        )
+        user_id = user.id
+
     image_prompt = (prompt or "").strip() or DEFAULT_IMAGE_PROMPT
     b64_image = base64.b64encode(image_bytes).decode("utf8")
     image_url = f"data:{mime_type};base64,{b64_image}"
@@ -209,14 +219,15 @@ async def route_image_message(
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ]
             ),
-        ]
+        ],
+        extra_headers=llm_user_headers(user_id),
     )
 
     text = _content_to_text(response.content)
     return text or "我现在没有生成可发送的回复。"
 
 
-async def classify_image_translation_intent(text: str) -> ImageTranslationIntent:
+async def classify_image_translation_intent(text: str, *, user_id: int) -> ImageTranslationIntent:
     text = text.strip()
     if not text:
         return "unknown"
@@ -225,7 +236,8 @@ async def classify_image_translation_intent(text: str) -> ImageTranslationIntent
         [
             SystemMessage(content=IMAGE_TRANSLATION_INTENT_SYSTEM_PROMPT),
             HumanMessage(content=text),
-        ]
+        ],
+        extra_headers=llm_user_headers(user_id),
     )
     label = _content_to_text(response.content).strip().lower()
     if label in ("translate", "skip", "unknown"):
