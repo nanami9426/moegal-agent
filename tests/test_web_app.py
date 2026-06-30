@@ -26,7 +26,7 @@ class WebApiTest(unittest.TestCase):
         self._seed_data()
 
         self.stack = ExitStack()
-        self.stack.enter_context(patch("web.routes.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("db.session.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.bindings.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.web_auth.get_engine", return_value=self.engine))
         self.client = TestClient(create_app(init_database=False))
@@ -427,7 +427,7 @@ class WebApiTest(unittest.TestCase):
         )
         self.assertEqual(missing_auth.status_code, 401)
 
-        with patch("web.routes.route_message", AsyncMock(return_value="你好呀")) as route_mock:
+        with patch("web.api.chat.route_message", AsyncMock(return_value="你好呀")) as route_mock:
             response = self.client.post(
                 "/api/web-chat/messages",
                 json={"message": "  你好  "},
@@ -452,7 +452,7 @@ class WebApiTest(unittest.TestCase):
         token = registered.json()["token"]
 
         with patch(
-            "web.routes.start_new_conversation_context",
+            "web.api.chat.start_new_conversation_context",
             return_value=SimpleNamespace(created=False),
         ) as start_new_mock:
             response = self.client.post(

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from config.settings import init_settings
 from db.session import init_db
-from web.routes import router
+from web.api import router
 
 
 def create_app(*, init_database: bool = True) -> FastAPI:
@@ -26,4 +26,3 @@ def create_app(*, init_database: bool = True) -> FastAPI:
 
 
 app = create_app()
-
