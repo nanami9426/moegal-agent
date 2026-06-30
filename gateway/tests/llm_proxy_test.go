@@ -1,10 +1,8 @@
 package tests
 
 import (
-	"bytes"
 	"compress/gzip"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +13,8 @@ import (
 )
 
 func TestRouterForwardsOpenAICompatibleRequest(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want %s", r.Method, http.MethodPost)
@@ -96,7 +96,9 @@ func TestRouterForwardsOpenAICompatibleRequest(t *testing.T) {
 	}
 }
 
-func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
+func TestLLMProxyStripsInternalUserID(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -116,16 +118,6 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 
 	t.Setenv(service.OpenAIBaseURLEnv, upstream.URL+"/v1")
 
-	previousOutput := log.Writer()
-	previousFlags := log.Flags()
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	log.SetFlags(0)
-	defer func() {
-		log.SetOutput(previousOutput)
-		log.SetFlags(previousFlags)
-	}()
-
 	gateway := httptest.NewServer(router.Router())
 	defer gateway.Close()
 
@@ -144,31 +136,19 @@ func TestUsageLoggerPrintsTokenUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
 
 	_, err = io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	logText := logs.String()
-	for _, want := range []string{
-		"user=1000000001",
-		"model=test-model",
-		"prompt_tokens=11",
-		"completion_tokens=7",
-		"total_tokens=18",
-	} {
-		if !strings.Contains(logText, want) {
-			t.Errorf("usage log = %q, want %q", logText, want)
-		}
-	}
-	if strings.Contains(logText, "user=legacy-user") {
-		t.Errorf("usage log = %q, must ignore body user", logText)
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestUsageLoggerPrintsTokenUsageWhenClientAcceptsCompression(t *testing.T) {
+func TestLLMProxyForcesIdentityEncodingWhenClientAcceptsCompression(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		responseBody := []byte(`{"id":"chatcmpl-test","model":"test-model","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
 		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -189,16 +169,6 @@ func TestUsageLoggerPrintsTokenUsageWhenClientAcceptsCompression(t *testing.T) {
 
 	t.Setenv(service.OpenAIBaseURLEnv, upstream.URL+"/v1")
 
-	previousOutput := log.Writer()
-	previousFlags := log.Flags()
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	log.SetFlags(0)
-	defer func() {
-		log.SetOutput(previousOutput)
-		log.SetFlags(previousFlags)
-	}()
-
 	gateway := httptest.NewServer(router.Router())
 	defer gateway.Close()
 
@@ -217,24 +187,13 @@ func TestUsageLoggerPrintsTokenUsageWhenClientAcceptsCompression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
 
 	_, err = io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	logText := logs.String()
-	for _, want := range []string{
-		"user=unknown",
-		"model=test-model",
-		"prompt_tokens=11",
-		"completion_tokens=7",
-		"total_tokens=18",
-	} {
-		if !strings.Contains(logText, want) {
-			t.Errorf("usage log = %q, want %q", logText, want)
-		}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -250,6 +209,7 @@ func TestLLMProxyRequiresUpstreamBaseURL(t *testing.T) {
 
 func TestRouterReturnsJSONWhenLLMUpstreamIsMissing(t *testing.T) {
 	t.Setenv(service.OpenAIBaseURLEnv, "")
+	t.Setenv("DATABASE_URL", "")
 
 	app := router.Router()
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)

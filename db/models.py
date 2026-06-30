@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -180,6 +180,31 @@ class Delivery(SQLModel, table=True):
     sent_at: datetime | None = Field(default=None)
     error_message: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class LLMTokenUsage(SQLModel, table=True):
+    __tablename__ = "llm_token_usages"
+    __table_args__ = (
+        Index("ix_llm_token_usages_user_created_at", "user_id", "created_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    model: str = Field(index=True, max_length=128)
+    request_path: str = Field(max_length=255)
+    prompt_tokens: int = Field(nullable=False)
+    completion_tokens: int = Field(nullable=False)
+    total_tokens: int = Field(nullable=False)
+    status_code: int = Field(nullable=False)
+    elapsed_ms: int = Field(nullable=False)
+    # 保存上游 usage 原文，后续如果有 cached/reasoning token 细分，不需要再改采集链路。
+    raw_usage: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
+    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
 
 
 class MediaAsset(SQLModel, table=True):
