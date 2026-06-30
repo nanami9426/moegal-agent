@@ -2,8 +2,11 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Column, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
+
+
+TIMESTAMP_TZ = DateTime(timezone=True)
 
 
 def utc_now() -> datetime:
@@ -30,9 +33,9 @@ class User(SQLModel, table=True):
     display_name: str | None = Field(default=None, max_length=255)
     language_code: str | None = Field(default=None, max_length=32)
     timezone: str | None = Field(default=None, max_length=64)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
-    last_seen_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    last_seen_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
 # Web 登录信息单独存放；业务身份仍落到 users，使用 platform=web 复用订阅和会话。
@@ -50,8 +53,8 @@ class WebAccount(SQLModel, table=True):
     login_id: str = Field(index=True, max_length=10)
     username: str = Field(max_length=64)
     password_hash: str = Field(max_length=512, nullable=False)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
 # Web 会话只保存 token 哈希值，明文 token 只在登录/注册响应中返回给前端。
@@ -66,9 +69,9 @@ class WebSession(SQLModel, table=True):
         sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
     )
     token_hash: str = Field(index=True, max_length=128)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    expires_at: datetime = Field(nullable=False)
-    revoked_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    expires_at: datetime = Field(sa_type=TIMESTAMP_TZ, nullable=False)
+    revoked_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
 class WebLinkCode(SQLModel, table=True):
@@ -83,9 +86,9 @@ class WebLinkCode(SQLModel, table=True):
     )
     # 只保存绑定码哈希，避免数据库泄露后 10 分钟内的明文码可被直接使用。
     code_hash: str = Field(index=True, max_length=128)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    expires_at: datetime = Field(nullable=False)
-    used_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    expires_at: datetime = Field(sa_type=TIMESTAMP_TZ, nullable=False)
+    used_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
 class WebBotBinding(SQLModel, table=True):
@@ -109,7 +112,7 @@ class WebBotBinding(SQLModel, table=True):
     )
     platform: str = Field(index=True, max_length=32)
     platform_user_id: str = Field(index=True, max_length=128)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
 class Subscription(SQLModel, table=True):
@@ -132,9 +135,9 @@ class Subscription(SQLModel, table=True):
         sa_column=Column(JSON, nullable=False),
     )
     delivery_mode: str = Field(default="daily", max_length=32)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
-    last_checked_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    last_checked_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
 class ContentItem(SQLModel, table=True):
@@ -150,8 +153,8 @@ class ContentItem(SQLModel, table=True):
     title: str | None = Field(default=None, max_length=512)
     summary: str | None = Field(default=None)
     author: str | None = Field(default=None, max_length=255)
-    published_at: datetime | None = Field(default=None, index=True)
-    fetched_at: datetime = Field(default_factory=utc_now, nullable=False)
+    published_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ, index=True)
+    fetched_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
     # 保存原始抓取结果，避免早期频繁调整表结构。
     raw: dict[str, Any] = Field(
         default_factory=dict,
@@ -177,9 +180,9 @@ class Delivery(SQLModel, table=True):
     )
     content_item_id: int = Field(foreign_key="content_items.id", index=True)
     status: str = Field(default="pending", index=True, max_length=32)
-    sent_at: datetime | None = Field(default=None)
+    sent_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
     error_message: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
 class LLMTokenUsage(SQLModel, table=True):
@@ -204,7 +207,7 @@ class LLMTokenUsage(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),
     )
-    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, index=True, nullable=False)
 
 
 class MediaAsset(SQLModel, table=True):
@@ -231,7 +234,7 @@ class MediaAsset(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),
     )
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
 class Conversation(SQLModel, table=True):
@@ -246,6 +249,12 @@ class Conversation(SQLModel, table=True):
             "version",
             name="uq_conversations_platform_user_version",
         ),
+        Index(
+            "ix_conversations_platform_user_active",
+            "platform",
+            "platform_user_id",
+            "is_active",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -258,9 +267,9 @@ class Conversation(SQLModel, table=True):
     # version 只做业务会话序号；实际 checkpoint 隔离依赖 UUID thread_id。
     version: int = Field(default=0, index=True, nullable=False)
     is_active: bool = Field(default=True, index=True, nullable=False)
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
-    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
-    ended_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    ended_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
 class Message(SQLModel, table=True):
@@ -274,4 +283,4 @@ class Message(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),
     )
-    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
