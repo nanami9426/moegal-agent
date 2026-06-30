@@ -1375,7 +1375,7 @@ function WebChatApp() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto flex max-w-4xl flex-col gap-4">
+            <div className="flex w-full flex-col gap-4">
               {messages.map((message) => (
                 <ChatBubble key={message.id} message={message} />
               ))}
