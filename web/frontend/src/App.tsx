@@ -35,12 +35,10 @@ import {
   logoutWebUser,
   type PlatformBindingItem,
   type Platform,
-  type QueryParams,
   registerWebUser,
   sendWebChatMessage,
   startNewWebChat,
   type SubscriptionItem,
-  type ChatRole,
   type TokenUsageByModelItem,
   type TokenUsageData,
   type TokenUsageRecordItem,
@@ -70,9 +68,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const defaultQuery: QueryParams = {
-  platform: "tg",
-  platformUserId: "",
+interface HistoryQuery {
+  conversationLimit: number;
+  messageLimit: number;
+}
+
+const defaultQuery: HistoryQuery = {
   conversationLimit: 20,
   messageLimit: 100,
 };
@@ -102,7 +103,7 @@ function AdminDashboard() {
   const [bindings, setBindings] = useState<PlatformBindingItem[]>([]);
   const [maxPerPlatform, setMaxPerPlatform] = useState(2);
   const [selectedBindingId, setSelectedBindingId] = useState<number | null>(null);
-  const [query, setQuery] = useState<QueryParams>(defaultQuery);
+  const [query, setQuery] = useState<HistoryQuery>(defaultQuery);
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -295,7 +296,7 @@ function AdminDashboard() {
     setLinkCode(null);
   }
 
-  function updateQuery<Key extends keyof QueryParams>(key: Key, value: QueryParams[Key]) {
+  function updateQuery<Key extends keyof HistoryQuery>(key: Key, value: HistoryQuery[Key]) {
     setQuery((current) => ({ ...current, [key]: value }));
   }
 
@@ -963,9 +964,8 @@ function TokenUsagePage() {
 
 interface ChatMessageView {
   id: string;
-  role: ChatRole;
+  role: "user" | "assistant";
   content: string;
-  created_at: string;
   pending?: boolean;
   failed?: boolean;
 }
@@ -1114,7 +1114,6 @@ function WebChatApp() {
       return;
     }
 
-    const now = new Date().toISOString();
     const assistantMessageId = `assistant-${Date.now()}`;
     setDraft("");
     setIsSending(true);
@@ -1125,13 +1124,11 @@ function WebChatApp() {
         id: `user-${Date.now()}`,
         role: "user",
         content: message,
-        created_at: now,
       },
       {
         id: assistantMessageId,
         role: "assistant",
         content: "",
-        created_at: now,
         pending: true,
       },
     ]);
@@ -1144,7 +1141,6 @@ function WebChatApp() {
             ? {
                 ...item,
                 content: reply,
-                created_at: new Date().toISOString(),
                 pending: false,
               }
             : item,
@@ -1437,9 +1433,6 @@ function ChatBubble({ message }: { message: ChatMessageView }) {
           message.failed && "border-destructive/50 bg-destructive/10 text-destructive",
         )}
       >
-        <div className={cn("mb-1 text-xs", isUser ? "text-primary-foreground/75" : "text-muted-foreground")}>
-          {formatTime(message.created_at)}
-        </div>
         {message.pending ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
@@ -1462,13 +1455,18 @@ function messagesFromConversations(conversations: ConversationHistory[]): ChatMe
   }
 
   return activeConversation.messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter(isVisibleChatMessage)
     .map((message) => ({
       id: String(message.id),
-      role: message.role as ChatRole,
+      role: message.role,
       content: message.content || "",
-      created_at: message.created_at,
     }));
+}
+
+function isVisibleChatMessage(
+  message: ConversationHistory["messages"][number],
+): message is ConversationHistory["messages"][number] & Pick<ChatMessageView, "role"> {
+  return message.role === "user" || message.role === "assistant";
 }
 
 function LoginGate({

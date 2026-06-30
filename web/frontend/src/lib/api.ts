@@ -1,5 +1,4 @@
 export type Platform = "web" | "tg" | "qq";
-export type ChatRole = "user" | "assistant";
 
 export interface SubscriptionItem {
   id: number;
@@ -98,7 +97,7 @@ export interface AuthResponse {
   user: WebUser;
 }
 
-export interface QueryParams {
+interface DashboardQueryParams {
   platform: Platform;
   platformUserId: string;
   conversationLimit: number;
@@ -113,7 +112,10 @@ export interface TokenUsageQueryParams {
 
 const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
-export async function fetchDashboardData(params: QueryParams, token: string): Promise<DashboardData> {
+export async function fetchDashboardData(
+  params: DashboardQueryParams,
+  token: string,
+): Promise<DashboardData> {
   const search = new URLSearchParams({
     platform: params.platform,
     platform_user_id: params.platformUserId,
