@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
-from db.models import Conversation, Message, Subscription, User
+from db.models import Conversation, LLMTokenUsage, Message, Subscription, User
 from services.account.bindings import complete_platform_link
 from web.app import create_app
 
@@ -88,6 +88,111 @@ class WebApiTest(unittest.TestCase):
         self.assertEqual(conversations[0]["messages"][0]["content"], "继续聊")
         self.assertNotIn("thread_id", conversations[0])
         self.assertNotIn("metadata_json", conversations[0]["messages"][0])
+
+    def test_token_usage_returns_aggregates_for_bound_user(self) -> None:
+        token = self._register_web_user()[0]
+        self._bind_platform_user(token, platform="tg", platform_user_id="42")
+
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    LLMTokenUsage(
+                        user_id=1_000_000_001,
+                        model="gpt-test-mini",
+                        request_path="/v1/chat/completions",
+                        prompt_tokens=10,
+                        completion_tokens=5,
+                        total_tokens=15,
+                        status_code=200,
+                        elapsed_ms=120,
+                        raw_usage={
+                            "prompt_tokens": 10,
+                            "completion_tokens": 5,
+                            "total_tokens": 15,
+                        },
+                        created_at=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+                    ),
+                    LLMTokenUsage(
+                        user_id=1_000_000_001,
+                        model="gpt-test-mini",
+                        request_path="/v1/chat/completions",
+                        prompt_tokens=7,
+                        completion_tokens=8,
+                        total_tokens=15,
+                        status_code=200,
+                        elapsed_ms=80,
+                        raw_usage={
+                            "prompt_tokens": 7,
+                            "completion_tokens": 8,
+                            "total_tokens": 15,
+                        },
+                        created_at=datetime(2026, 1, 1, 12, 5, tzinfo=timezone.utc),
+                    ),
+                    LLMTokenUsage(
+                        user_id=1_000_000_001,
+                        model="gpt-test-large",
+                        request_path="/v1/responses",
+                        prompt_tokens=20,
+                        completion_tokens=10,
+                        total_tokens=30,
+                        status_code=200,
+                        elapsed_ms=300,
+                        raw_usage={
+                            "prompt_tokens": 20,
+                            "completion_tokens": 10,
+                            "total_tokens": 30,
+                        },
+                        created_at=datetime(2026, 1, 1, 12, 10, tzinfo=timezone.utc),
+                    ),
+                    LLMTokenUsage(
+                        user_id=1_000_000_002,
+                        model="gpt-test-mini",
+                        request_path="/v1/chat/completions",
+                        prompt_tokens=100,
+                        completion_tokens=100,
+                        total_tokens=200,
+                        status_code=200,
+                        elapsed_ms=500,
+                        raw_usage={
+                            "prompt_tokens": 100,
+                            "completion_tokens": 100,
+                            "total_tokens": 200,
+                        },
+                        created_at=datetime(2026, 1, 1, 13, tzinfo=timezone.utc),
+                    ),
+                ]
+            )
+            session.commit()
+
+        response = self.client.get(
+            "/api/token-usage",
+            params={"platform": "tg", "platform_user_id": "42", "recent_limit": 2},
+            headers=self._auth_headers(token),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["summary"]["request_count"], 3)
+        self.assertEqual(payload["summary"]["prompt_tokens"], 37)
+        self.assertEqual(payload["summary"]["completion_tokens"], 23)
+        self.assertEqual(payload["summary"]["total_tokens"], 60)
+        self.assertEqual(payload["summary"]["average_elapsed_ms"], 167)
+        self.assertEqual(
+            [item["model"] for item in payload["by_model"]],
+            ["gpt-test-large", "gpt-test-mini"],
+        )
+        self.assertEqual(payload["by_model"][0]["total_tokens"], 30)
+        self.assertEqual([record["model"] for record in payload["recent"]], [
+            "gpt-test-large",
+            "gpt-test-mini",
+        ])
+
+        forbidden = self.client.get(
+            "/api/token-usage",
+            params={"platform": "qq", "platform_user_id": "qq-42"},
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(forbidden.status_code, 403)
 
     def test_unbound_or_unknown_user_is_forbidden(self) -> None:
         token = self._register_web_user()[0]

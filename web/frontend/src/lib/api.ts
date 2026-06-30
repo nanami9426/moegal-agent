@@ -34,6 +34,41 @@ export interface DashboardData {
   conversations: ConversationHistory[];
 }
 
+export interface TokenUsageSummary {
+  request_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  average_elapsed_ms: number;
+  latest_created_at: string | null;
+}
+
+export interface TokenUsageByModelItem {
+  model: string;
+  request_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface TokenUsageRecordItem {
+  id: number;
+  model: string;
+  request_path: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  status_code: number;
+  elapsed_ms: number;
+  created_at: string;
+}
+
+export interface TokenUsageData {
+  summary: TokenUsageSummary;
+  by_model: TokenUsageByModelItem[];
+  recent: TokenUsageRecordItem[];
+}
+
 export interface PlatformBindingItem {
   id: number;
   platform: Platform;
@@ -70,6 +105,12 @@ export interface QueryParams {
   messageLimit: number;
 }
 
+export interface TokenUsageQueryParams {
+  platform: Platform;
+  platformUserId: string;
+  recentLimit: number;
+}
+
 const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 export async function fetchDashboardData(params: QueryParams, token: string): Promise<DashboardData> {
@@ -90,6 +131,18 @@ export async function fetchDashboardData(params: QueryParams, token: string): Pr
     subscriptions: subscriptions.subscriptions,
     conversations: chatHistory.conversations,
   };
+}
+
+export async function fetchTokenUsage(
+  params: TokenUsageQueryParams,
+  token: string,
+): Promise<TokenUsageData> {
+  const search = new URLSearchParams({
+    platform: params.platform,
+    platform_user_id: params.platformUserId,
+    recent_limit: String(params.recentLimit),
+  });
+  return getJson<TokenUsageData>(`/api/token-usage?${search}`, token);
 }
 
 export async function fetchAdminBindings(token: string): Promise<AdminBindingsResponse> {

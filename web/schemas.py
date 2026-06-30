@@ -59,6 +59,43 @@ class AdminBindingsResponse(BaseModel):
     max_per_platform: int
 
 
+class TokenUsageSummary(BaseModel):
+    request_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    average_elapsed_ms: int
+    latest_created_at: datetime | None
+
+
+class TokenUsageByModelItem(BaseModel):
+    model: str
+    request_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class TokenUsageRecordItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    model: str
+    request_path: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    status_code: int
+    elapsed_ms: int
+    created_at: datetime
+
+
+class TokenUsageResponse(BaseModel):
+    summary: TokenUsageSummary
+    by_model: list[TokenUsageByModelItem]
+    recent: list[TokenUsageRecordItem]
+
+
 class LinkCodeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

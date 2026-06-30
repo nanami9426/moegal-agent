@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from agent.router import route_message, start_new_conversation_context
-from db.models import Conversation, Message, Subscription, User, WebBotBinding
+from db.models import Conversation, LLMTokenUsage, Message, Subscription, User, WebBotBinding
 from db.session import get_engine
 from services.account.bindings import (
     get_max_bindings_per_platform,
@@ -26,6 +27,10 @@ from web.schemas import (
     MessageItem,
     SubscriptionItem,
     SubscriptionsResponse,
+    TokenUsageByModelItem,
+    TokenUsageRecordItem,
+    TokenUsageResponse,
+    TokenUsageSummary,
     WebAuthResponse,
     WebChatMessageRequest,
     WebChatMessageResponse,
@@ -137,6 +142,29 @@ def get_chat_history(
             conversation_limit=conversation_limit,
             message_limit=message_limit,
         )
+
+
+@router.get(
+    "/token-usage",
+    response_model=TokenUsageResponse,
+    summary="查询用户 LLM token 用量",
+    description=(
+        "管理后台接口。根据 bearer token 识别当前 Web 用户，"
+        "仅允许读取当前 Web 账号或已绑定 Bot 账号的 LLM token 用量。"
+    ),
+)
+def get_token_usage(
+    platform: str = Query(...),
+    platform_user_id: str = Query(...),
+    recent_limit: int = Query(20, ge=1, le=100),
+    current_user: AuthenticatedWebUser = Depends(_require_web_user),
+) -> TokenUsageResponse:
+    platform = _normalize_admin_platform_query(platform)
+    platform_user_id = _normalize_required_query(platform_user_id, "platform_user_id")
+
+    with Session(get_engine()) as session:
+        user = _get_admin_visible_user(session, current_user, platform, platform_user_id)
+        return _build_token_usage(session, user.id, recent_limit=recent_limit)
 
 
 @router.get(
@@ -449,6 +477,69 @@ def _build_chat_history(
         )
 
     return ChatHistoryResponse(conversations=conversation_history)
+
+
+def _build_token_usage(
+    session: Session,
+    user_id: int,
+    *,
+    recent_limit: int,
+) -> TokenUsageResponse:
+    summary_row = session.exec(
+        select(
+            func.count(LLMTokenUsage.id),
+            func.coalesce(func.sum(LLMTokenUsage.prompt_tokens), 0),
+            func.coalesce(func.sum(LLMTokenUsage.completion_tokens), 0),
+            func.coalesce(func.sum(LLMTokenUsage.total_tokens), 0),
+            func.coalesce(func.avg(LLMTokenUsage.elapsed_ms), 0),
+            func.max(LLMTokenUsage.created_at),
+        ).where(LLMTokenUsage.user_id == user_id)
+    ).one()
+
+    model_rows = session.exec(
+        select(
+            LLMTokenUsage.model,
+            func.count(LLMTokenUsage.id),
+            func.coalesce(func.sum(LLMTokenUsage.prompt_tokens), 0),
+            func.coalesce(func.sum(LLMTokenUsage.completion_tokens), 0),
+            func.coalesce(func.sum(LLMTokenUsage.total_tokens), 0),
+        )
+        .where(LLMTokenUsage.user_id == user_id)
+        .group_by(LLMTokenUsage.model)
+        .order_by(func.sum(LLMTokenUsage.total_tokens).desc(), LLMTokenUsage.model)
+    ).all()
+
+    recent = session.exec(
+        select(LLMTokenUsage)
+        .where(LLMTokenUsage.user_id == user_id)
+        .order_by(LLMTokenUsage.created_at.desc(), LLMTokenUsage.id.desc())
+        .limit(recent_limit)
+    ).all()
+
+    return TokenUsageResponse(
+        summary=TokenUsageSummary(
+            request_count=int(summary_row[0] or 0),
+            prompt_tokens=int(summary_row[1] or 0),
+            completion_tokens=int(summary_row[2] or 0),
+            total_tokens=int(summary_row[3] or 0),
+            average_elapsed_ms=round(float(summary_row[4] or 0)),
+            latest_created_at=summary_row[5],
+        ),
+        by_model=[
+            TokenUsageByModelItem(
+                model=row[0],
+                request_count=int(row[1] or 0),
+                prompt_tokens=int(row[2] or 0),
+                completion_tokens=int(row[3] or 0),
+                total_tokens=int(row[4] or 0),
+            )
+            for row in model_rows
+        ],
+        recent=[
+            TokenUsageRecordItem.model_validate(record)
+            for record in recent
+        ],
+    )
 
 
 def _auth_response(token: str, user: AuthenticatedWebUser) -> WebAuthResponse:
