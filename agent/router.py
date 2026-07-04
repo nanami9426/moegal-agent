@@ -77,15 +77,15 @@ def _content_to_text(content: str | list[Any] | None) -> str:
     return "\n".join(part.strip() for part in parts if part).strip()
 
 
-def extract_final_text(messages: list[BaseMessage]) -> str:
-    # 从消息列表里找出最终可以发给用户的文本
+def extract_final_text(messages: list[BaseMessage]) -> str | None:
+    # 从消息列表里找出最终可以发给用户的文本；找不到返回 None，由调用方兜底占位串。
     for message in reversed(messages):
         if isinstance(message, AIMessage) and not message.tool_calls:
             text = _content_to_text(message.content)
             if text:
                 return text
 
-    return "我现在没有生成可发送的回复。"
+    return None
 
 
 @lru_cache
@@ -170,7 +170,7 @@ async def route_message(
         config={"configurable": {"thread_id": conversation.thread_id}},
     )
 
-    reply_text = extract_final_text(result["messages"])
+    reply_text = extract_final_text(result["messages"]) or "我现在没有生成可发送的回复。"
     # 只记录最终要发给用户的助手回复，不把中间 tool call 展示为聊天记录。
     append_message(
         conversation_id=conversation.id,
@@ -282,8 +282,11 @@ async def route_message_stream(
         yield chunk_text
 
     reply_text = extract_final_text(final_messages or [])
-    if reply_text == "我现在没有生成可发送的回复。" and streamed_parts:
-        reply_text = "".join(streamed_parts).strip() or reply_text
+    if reply_text is None:
+        if streamed_parts:
+            reply_text = "".join(streamed_parts).strip() or "我现在没有生成可发送的回复。"
+        else:
+            reply_text = "我现在没有生成可发送的回复。"
 
     append_message(
         conversation_id=conversation.id,
