@@ -2,12 +2,25 @@ import base64
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
 from agent import graph as agent_graph
 from agent import router
+
+
+class _FakeAsyncPool:
+    def __init__(self) -> None:
+        self.enter_count = 0
+        self.exit_count = 0
+
+    async def __aenter__(self):
+        self.enter_count += 1
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.exit_count += 1
 
 
 class RouterContextTest(unittest.IsolatedAsyncioTestCase):
@@ -184,6 +197,62 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             model.ainvoke.await_args.kwargs["extra_headers"],
             {"X-User-ID": "1000000001"},
         )
+
+    async def test_get_chat_graph_uses_checked_connection_pool(self) -> None:
+        await agent_graph.close_chat_graphs()
+        fake_pool = _FakeAsyncPool()
+        fake_saver = SimpleNamespace(setup=AsyncMock())
+        fake_graph = SimpleNamespace()
+        check_connection = object()
+        pool_factory = Mock(return_value=fake_pool)
+        pool_factory.check_connection = check_connection
+
+        with (
+            patch.object(agent_graph, "get_psycopg_conninfo", return_value="postgresql://db"),
+            patch.object(agent_graph, "AsyncConnectionPool", pool_factory),
+            patch.object(agent_graph, "AsyncPostgresSaver", Mock(return_value=fake_saver)),
+            patch.object(agent_graph, "build_chat_graph", Mock(return_value=fake_graph)),
+        ):
+            graph = await agent_graph.get_chat_graph()
+
+        self.assertIs(graph, fake_graph)
+        self.assertEqual(fake_pool.enter_count, 1)
+        fake_saver.setup.assert_awaited_once()
+        pool_factory.assert_called_once_with(
+            "postgresql://db",
+            kwargs={
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "row_factory": agent_graph.dict_row,
+            },
+            min_size=0,
+            max_size=4,
+            max_idle=60.0,
+            check=check_connection,
+            open=False,
+        )
+
+        await agent_graph.close_chat_graphs()
+        self.assertEqual(fake_pool.exit_count, 1)
+
+    async def test_get_chat_graph_closes_pool_when_setup_fails(self) -> None:
+        await agent_graph.close_chat_graphs()
+        fake_pool = _FakeAsyncPool()
+        fake_saver = SimpleNamespace(setup=AsyncMock(side_effect=RuntimeError("setup failed")))
+        pool_factory = Mock(return_value=fake_pool)
+        pool_factory.check_connection = object()
+
+        with (
+            patch.object(agent_graph, "get_psycopg_conninfo", return_value="postgresql://db"),
+            patch.object(agent_graph, "AsyncConnectionPool", pool_factory),
+            patch.object(agent_graph, "AsyncPostgresSaver", Mock(return_value=fake_saver)),
+            self.assertRaisesRegex(RuntimeError, "setup failed"),
+        ):
+            await agent_graph.get_chat_graph()
+
+        self.assertEqual(fake_pool.exit_count, 1)
+        self.assertEqual(agent_graph._chat_graphs, {})
+        self.assertEqual(agent_graph._chat_graph_stacks, {})
 
     async def test_route_image_message_builds_multimodal_message(self) -> None:
         image_bytes = b"image-bytes"
