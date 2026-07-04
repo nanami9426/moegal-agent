@@ -20,7 +20,7 @@ export function BindingAccountButton({
     <button
       aria-pressed={active}
       className={cn(
-        "pixel-panel-sm w-full bg-background p-3 text-left text-sm font-bold transition-none hover:bg-secondary",
+        "pixel-panel-sm group w-full bg-background p-3 text-left text-sm font-bold transition-none hover:bg-secondary hover:text-secondary-foreground",
         active && "bg-primary text-primary-foreground",
       )}
       onClick={onClick}
@@ -30,10 +30,10 @@ export function BindingAccountButton({
         <span className="truncate">{title}</span>
         <Badge variant={active ? "success" : "secondary"}>{formatPlatform(binding.platform)}</Badge>
       </div>
-      <div className="mt-1 break-all text-xs text-muted-foreground">
+      <div className="mt-1 break-all text-xs text-muted-foreground group-hover:text-secondary-foreground">
         {binding.platform_user_id}
       </div>
-      <div className="mt-2 text-xs text-muted-foreground">
+      <div className="mt-2 text-xs text-muted-foreground group-hover:text-secondary-foreground">
         绑定：{formatTime(binding.bound_at)}
       </div>
     </button>
