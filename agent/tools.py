@@ -1,5 +1,7 @@
 from typing import Annotated
+from urllib.parse import quote
 
+import httpx
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
@@ -70,4 +72,41 @@ def build_daily_digest(
     return build_daily_digest_text(user_id=user_id)
 
 
-TOOLS = [create_subscription, delete_subscription, list_subscriptions, build_daily_digest]
+@tool
+def get_weather(location: str = "Shenzhen") -> str:
+    """Get the current weather for a city or region. Use this when the user asks about weather."""
+    normalized_location = " ".join(location.strip().split())
+    if not normalized_location:
+        normalized_location = "Shenzhen"
+    normalized_location = normalized_location[:80]
+    url = f"https://wttr.in/{quote(normalized_location, safe='')}"
+
+    try:
+        response = httpx.get(
+            url,
+            params={
+                "format": "%l: %C %t, 体感%f, 湿度%h, 风%w, 降水%p, 紫外线%u",
+            },
+            timeout=8.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return f"查询 {normalized_location} 天气失败：天气服务返回 {exc.response.status_code}。"
+    except httpx.HTTPError as exc:
+        return f"查询 {normalized_location} 天气失败：{exc}。"
+
+    weather = response.text.strip()
+    if not weather:
+        return f"查询 {normalized_location} 天气失败：天气服务没有返回内容。"
+
+    return weather
+
+
+TOOLS = [
+    create_subscription,
+    delete_subscription,
+    list_subscriptions,
+    build_daily_digest,
+    get_weather,
+]
