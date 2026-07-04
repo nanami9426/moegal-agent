@@ -7,6 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ChatMessageView } from "./chatMessages";
+import { MarkdownMessage } from "./MarkdownMessage";
 
 export function ChatBubble({ message }: { message: ChatMessageView }) {
   const isUser = message.role === "user";
@@ -32,13 +33,20 @@ export function ChatBubble({ message }: { message: ChatMessageView }) {
             <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
             生成中
           </div>
-        ) : (
+        ) : isUser || message.failed ? (
           <p className="whitespace-pre-wrap break-words text-sm leading-6">
             {message.content}
             {message.pending ? (
               <RefreshCcw className="ml-2 inline h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : null}
           </p>
+        ) : (
+          <>
+            <MarkdownMessage content={message.content} />
+            {message.pending ? (
+              <RefreshCcw className="ml-2 mt-2 inline h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : null}
+          </>
         )}
       </div>
     </div>

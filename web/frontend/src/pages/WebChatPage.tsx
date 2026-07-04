@@ -1,6 +1,7 @@
 import {
   type FormEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -68,6 +69,13 @@ export function WebChatPage() {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isStartingNew, setIsStartingNew] = useState(false);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+
+  function focusMessageInput() {
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }
 
   useEffect(() => {
     // 刷新页面后先用本地 token 向后端校验身份，再恢复当前活跃会话。
@@ -186,17 +194,20 @@ export function WebChatPage() {
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || isSending) {
+      focusMessageInput();
       return;
     }
 
     const message = draft.trim();
     if (!message) {
+      focusMessageInput();
       return;
     }
 
     const assistantMessageId = `assistant-${Date.now()}`;
     setDraft("");
     setIsSending(true);
+    focusMessageInput();
     // 先乐观插入用户消息和助手占位，后端返回后再替换占位内容。
     setMessages((current) => [
       ...current,
@@ -254,6 +265,7 @@ export function WebChatPage() {
       toast.error("发送失败", { description: message });
     } finally {
       setIsSending(false);
+      focusMessageInput();
     }
   }
 
@@ -472,7 +484,6 @@ export function WebChatPage() {
         <form className="mt-4 flex gap-2" onSubmit={handleSendMessage}>
           <textarea
             className="min-h-12 flex-1 resize-none border-2 border-input bg-card px-3 py-3 text-sm font-bold leading-5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isSending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -481,6 +492,7 @@ export function WebChatPage() {
               }
             }}
             placeholder="输入消息"
+            ref={messageInputRef}
             rows={1}
             value={draft}
           />

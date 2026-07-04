@@ -14,6 +14,7 @@ import type {
 import { formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { EmptyState } from "@/components/shared/EmptyState";
 import {
   Accordion,
@@ -178,6 +179,7 @@ function MessageList({ messages }: { messages: ConversationHistory["messages"] }
     <div className="space-y-3">
       {messages.map((message) => {
         const isUser = message.role === "user";
+        const isAssistant = message.role === "assistant";
         return (
           <div
             className={cn(
@@ -201,9 +203,13 @@ function MessageList({ messages }: { messages: ConversationHistory["messages"] }
                   {formatTime(message.created_at)}
                 </span>
               </div>
-              <p className="whitespace-pre-wrap break-words text-sm leading-6">
-                {message.content || "空消息"}
-              </p>
+              {isAssistant ? (
+                <MarkdownMessage content={message.content || "空消息"} />
+              ) : (
+                <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                  {message.content || "空消息"}
+                </p>
+              )}
             </div>
           </div>
         );
