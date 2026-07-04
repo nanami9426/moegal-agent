@@ -39,6 +39,7 @@ import {
 } from "@/components/chat/chatMessages";
 import { LoadingScreen } from "@/components/shared/LoadingScreen";
 import { PageBackdrop } from "@/components/shared/PageBackdrop";
+import { IconTooltip } from "@/components/shared/IconTooltip";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -427,35 +428,43 @@ export function WebChatPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              aria-label="新会话"
-              disabled={isStartingNew || isSending}
-              onClick={() => void handleStartNewChat()}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              {isStartingNew ? <RefreshCcw className="animate-spin" /> : <Plus />}
-            </Button>
-            <Button asChild aria-label="管理后台" size="icon" variant="outline">
-              <a href="/admin">
-                <Shield />
-              </a>
-            </Button>
-            <Button asChild aria-label="Token 用量" size="icon" variant="outline">
-              <a href="/usage">
-                <KeyRound />
-              </a>
-            </Button>
-            <Button
-              aria-label="退出登录"
-              onClick={() => void handleLogout()}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <LogOut />
-            </Button>
+            <IconTooltip label="新会话">
+              <Button
+                aria-label="新会话"
+                disabled={isStartingNew || isSending}
+                onClick={() => void handleStartNewChat()}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                {isStartingNew ? <RefreshCcw className="animate-spin" /> : <Plus />}
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="管理后台">
+              <Button asChild aria-label="管理后台" size="icon" variant="outline">
+                <a href="/admin">
+                  <Shield />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Token 用量">
+              <Button asChild aria-label="Token 用量" size="icon" variant="outline">
+                <a href="/usage">
+                  <KeyRound />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="退出登录">
+              <Button
+                aria-label="退出登录"
+                onClick={() => void handleLogout()}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <LogOut />
+              </Button>
+            </IconTooltip>
           </div>
         </div>
       </header>

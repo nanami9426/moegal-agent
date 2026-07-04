@@ -37,6 +37,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { BindingAccountButton } from "@/components/shared/BindingAccountButton";
+import { IconTooltip } from "@/components/shared/IconTooltip";
 import { LoadingScreen } from "@/components/shared/LoadingScreen";
 import { LoginGate } from "@/components/shared/LoginGate";
 import { PageBackdrop } from "@/components/shared/PageBackdrop";
@@ -284,25 +285,31 @@ export function TokenUsagePage() {
             <StatusPill icon={KeyRound} label="总 token" value={summary?.total_tokens ?? 0} />
             <StatusPill icon={History} label="请求" value={summary?.request_count ?? 0} />
             <StatusPill icon={Bot} label="模型" value={usage?.by_model.length ?? 0} />
-            <Button asChild aria-label="管理后台" size="icon" variant="outline">
-              <a href="/admin">
-                <Shield />
-              </a>
-            </Button>
-            <Button asChild aria-label="Web 聊天" size="icon" variant="outline">
-              <a href="/">
-                <Bot />
-              </a>
-            </Button>
-            <Button
-              aria-label="退出登录"
-              onClick={() => void handleLogout()}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <LogOut />
-            </Button>
+            <IconTooltip label="管理后台">
+              <Button asChild aria-label="管理后台" size="icon" variant="outline">
+                <a href="/admin">
+                  <Shield />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Web 聊天">
+              <Button asChild aria-label="Web 聊天" size="icon" variant="outline">
+                <a href="/">
+                  <Bot />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="退出登录">
+              <Button
+                aria-label="退出登录"
+                onClick={() => void handleLogout()}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <LogOut />
+              </Button>
+            </IconTooltip>
           </div>
         </header>
 

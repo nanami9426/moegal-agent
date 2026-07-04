@@ -54,6 +54,7 @@ import {
   ListSkeleton,
   OverviewSkeleton,
 } from "@/components/shared/SkeletonPanels";
+import { IconTooltip } from "@/components/shared/IconTooltip";
 import { StatusPill } from "@/components/shared/StatusPill";
 import { Button } from "@/components/ui/button";
 import {
@@ -332,25 +333,31 @@ export function AdminDashboard() {
             <StatusPill icon={Rss} label="订阅" value={summary.subscriptions} />
             <StatusPill icon={History} label="会话" value={summary.conversations} />
             <StatusPill icon={MessageCircle} label="消息" value={summary.messages} />
-            <Button asChild aria-label="Token 用量" size="icon" variant="outline">
-              <a href="/usage">
-                <KeyRound />
-              </a>
-            </Button>
-            <Button asChild aria-label="Web 聊天" size="icon" variant="outline">
-              <a href="/">
-                <Bot />
-              </a>
-            </Button>
-            <Button
-              aria-label="退出登录"
-              onClick={() => void handleLogout()}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <LogOut />
-            </Button>
+            <IconTooltip label="Token 用量">
+              <Button asChild aria-label="Token 用量" size="icon" variant="outline">
+                <a href="/usage">
+                  <KeyRound />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Web 聊天">
+              <Button asChild aria-label="Web 聊天" size="icon" variant="outline">
+                <a href="/">
+                  <Bot />
+                </a>
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="退出登录">
+              <Button
+                aria-label="退出登录"
+                onClick={() => void handleLogout()}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <LogOut />
+              </Button>
+            </IconTooltip>
           </div>
         </header>
 
