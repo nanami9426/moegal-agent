@@ -69,7 +69,7 @@ export function ModelUsagePanel({ models }: { models: TokenUsageByModelItem[] })
           models.map((model) => {
             const percent = maxTokens > 0 ? (model.total_tokens / maxTokens) * 100 : 0;
             return (
-              <div className="rounded-md border bg-background p-4" key={model.model}>
+              <div className="pixel-inset bg-background p-4" key={model.model}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="break-all font-medium">{model.model}</p>
@@ -84,9 +84,9 @@ export function ModelUsagePanel({ models }: { models: TokenUsageByModelItem[] })
                     <p className="text-xs text-muted-foreground">tokens</p>
                   </div>
                 </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-md bg-muted">
+                <div className="mt-3 h-3 overflow-hidden border-2 border-foreground bg-muted">
                   <div
-                    className="h-full rounded-md bg-primary"
+                    className="h-full bg-primary"
                     style={{ width: `${percent}%` }}
                   />
                 </div>
@@ -118,7 +118,7 @@ export function RecentUsagePanel({ records }: { records: TokenUsageRecordItem[] 
           <EmptyState title="暂无调用记录" description="该账号最近没有 LLM token 记录。" dense />
         ) : (
           records.map((record) => (
-            <div className="rounded-md border bg-background p-4" key={record.id}>
+            <div className="pixel-inset bg-background p-4" key={record.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">

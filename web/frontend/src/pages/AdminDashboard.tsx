@@ -49,6 +49,7 @@ import {
 import { BindingAccountButton } from "@/components/shared/BindingAccountButton";
 import { LoadingScreen } from "@/components/shared/LoadingScreen";
 import { LoginGate } from "@/components/shared/LoginGate";
+import { PageBackdrop } from "@/components/shared/PageBackdrop";
 import {
   ListSkeleton,
   OverviewSkeleton,
@@ -312,10 +313,9 @@ export function AdminDashboard() {
     : "未选择";
 
   return (
-    <main className="relative min-h-screen overflow-hidden">
-      <div className="surface-grid pointer-events-none absolute inset-x-0 top-0 h-80" />
+    <PageBackdrop>
       <div className="container relative z-10 py-6 md:py-8">
-        <header className="mb-6 flex flex-col gap-4 border-b pb-5 md:flex-row md:items-center md:justify-between">
+        <header className="mb-6 flex flex-col gap-4 border-b-2 border-foreground pb-5 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
               <Bot className="h-4 w-4" />
@@ -384,7 +384,7 @@ export function AdminDashboard() {
               </div>
 
               {linkCode ? (
-                <div className="mb-5 rounded-md border bg-background p-4">
+                <div className="mb-5 pixel-inset bg-background p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-xs text-muted-foreground">通用绑定码</p>
@@ -426,7 +426,7 @@ export function AdminDashboard() {
                   </Button>
                 </div>
                 {bindings.length === 0 ? (
-                  <div className="rounded-md border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                  <div className="border-2 border-dashed border-foreground bg-background p-4 text-sm text-muted-foreground">
                     暂无可查看账号。
                   </div>
                 ) : (
@@ -448,7 +448,7 @@ export function AdminDashboard() {
               </div>
 
               <form className="space-y-5" onSubmit={handleSubmit}>
-                <div className="rounded-md border bg-background p-3 text-sm">
+                <div className="pixel-inset bg-background p-3 text-sm">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Link2 className="h-4 w-4" />
                     当前账号
@@ -489,7 +489,7 @@ export function AdminDashboard() {
                 </div>
 
                 {error ? (
-                  <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <div className="flex gap-2 border-2 border-foreground bg-destructive p-3 text-sm font-bold text-destructive-foreground">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{error}</span>
                   </div>
@@ -558,6 +558,6 @@ export function AdminDashboard() {
         </div>
       </div>
       <Toaster />
-    </main>
+    </PageBackdrop>
   );
 }

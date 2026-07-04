@@ -80,7 +80,7 @@ export function SubscriptionsPanel({
 
 function SubscriptionRow({ subscription }: { subscription: SubscriptionItem }) {
   return (
-    <div className="rounded-md border bg-background p-4">
+    <div className="pixel-inset bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate font-medium">
@@ -127,7 +127,7 @@ export function ConversationsPanel({
         ) : (
           <>
             <Accordion
-              className="rounded-md border px-4"
+              className="border-2 border-foreground bg-background px-4"
               collapsible
               defaultValue={visible[0]?.id ? `conversation-${visible[0].id}` : undefined}
               type="single"
@@ -181,14 +181,14 @@ function MessageList({ messages }: { messages: ConversationHistory["messages"] }
         return (
           <div
             className={cn(
-              "flex gap-3 rounded-md border p-3",
+              "flex gap-3 border-2 border-foreground p-3",
               isUser ? "bg-background" : "bg-muted/55",
             )}
             key={message.id}
           >
             <div
               className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
+                "flex h-8 w-8 shrink-0 items-center justify-center border-2 border-foreground",
                 isUser ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground",
               )}
             >

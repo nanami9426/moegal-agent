@@ -9,15 +9,6 @@ export async function fetchWebChatHistory(token: string): Promise<ConversationHi
   return payload.conversations;
 }
 
-export async function sendWebChatMessage(token: string, message: string): Promise<string> {
-  const payload = await postJson<{ reply: string }>(
-    "/api/web-chat/messages",
-    { message },
-    token,
-  );
-  return payload.reply;
-}
-
 export async function streamWebChatMessage(
   token: string,
   message: string,

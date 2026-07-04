@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageBackdrop } from "@/components/shared/PageBackdrop";
 import { Toaster } from "@/components/ui/sonner";
 
 interface LoginGateProps {
@@ -17,12 +18,11 @@ interface LoginGateProps {
 
 export function LoginGate({ title, description }: LoginGateProps) {
   return (
-    <main className="relative min-h-screen overflow-hidden">
-      <div className="surface-grid pointer-events-none absolute inset-x-0 top-0 h-80" />
+    <PageBackdrop>
       <div className="container relative z-10 flex min-h-screen max-w-3xl items-center justify-center py-8">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <div className="mb-2 flex h-10 w-10 items-center justify-center bg-primary text-primary-foreground">
               <Shield className="h-5 w-5" />
             </div>
             <CardTitle>{title}</CardTitle>
@@ -39,6 +39,6 @@ export function LoginGate({ title, description }: LoginGateProps) {
         </Card>
       </div>
       <Toaster />
-    </main>
+    </PageBackdrop>
   );
 }

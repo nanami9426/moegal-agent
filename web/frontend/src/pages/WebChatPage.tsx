@@ -37,6 +37,7 @@ import {
   type ChatMessageView,
 } from "@/components/chat/chatMessages";
 import { LoadingScreen } from "@/components/shared/LoadingScreen";
+import { PageBackdrop } from "@/components/shared/PageBackdrop";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -262,8 +263,7 @@ export function WebChatPage() {
 
   if (!token || !user) {
     return (
-      <main className="relative min-h-screen overflow-hidden">
-        <div className="surface-grid pointer-events-none absolute inset-x-0 top-0 h-80" />
+      <PageBackdrop>
         <div className="container relative z-10 flex min-h-screen max-w-5xl items-center py-8">
           <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,0.95fr)_420px] lg:items-center">
             <section className="space-y-4">
@@ -372,7 +372,7 @@ export function WebChatPage() {
                   </div>
 
                   {authError ? (
-                    <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                    <div className="flex gap-2 border-2 border-foreground bg-destructive p-3 text-sm font-bold text-destructive-foreground">
                       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>{authError}</span>
                     </div>
@@ -394,16 +394,16 @@ export function WebChatPage() {
           </div>
         </div>
         <Toaster />
-      </main>
+      </PageBackdrop>
     );
   }
 
   return (
     <main className="flex min-h-screen flex-col bg-background">
-      <header className="border-b bg-card">
+      <header className="border-b-2 border-foreground bg-card">
         <div className="container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center border-2 border-foreground bg-primary text-primary-foreground">
               <Bot className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -449,11 +449,11 @@ export function WebChatPage() {
       </header>
 
       <section className="container flex min-h-0 flex-1 flex-col py-5">
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-card p-4">
+        <div className="pixel-panel min-h-0 flex-1 overflow-y-auto bg-card p-4">
           {messages.length === 0 ? (
             <div className="flex min-h-[52vh] items-center justify-center text-center">
               <div>
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-muted">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center border-2 border-foreground bg-muted">
                   <MessageCircle className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <h2 className="text-base font-semibold">暂无消息</h2>
@@ -471,7 +471,7 @@ export function WebChatPage() {
 
         <form className="mt-4 flex gap-2" onSubmit={handleSendMessage}>
           <textarea
-            className="min-h-12 flex-1 resize-none rounded-md border border-input bg-background px-3 py-3 text-sm leading-5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-12 flex-1 resize-none border-2 border-input bg-card px-3 py-3 text-sm font-bold leading-5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isSending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {

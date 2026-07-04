@@ -20,14 +20,14 @@ export function BindingAccountButton({
     <button
       aria-pressed={active}
       className={cn(
-        "w-full rounded-md border bg-background p-3 text-left text-sm transition-colors hover:bg-accent",
-        active && "border-primary bg-primary/10 text-primary",
+        "pixel-panel-sm w-full bg-background p-3 text-left text-sm font-bold transition-none hover:bg-secondary",
+        active && "bg-primary text-primary-foreground",
       )}
       onClick={onClick}
       type="button"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-medium">{title}</span>
+        <span className="truncate">{title}</span>
         <Badge variant={active ? "success" : "secondary"}>{formatPlatform(binding.platform)}</Badge>
       </div>
       <div className="mt-1 break-all text-xs text-muted-foreground">

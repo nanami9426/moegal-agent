@@ -14,7 +14,7 @@ export function ChatBubble({ message }: { message: ChatMessageView }) {
     <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
       <div
         className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+          "flex h-9 w-9 shrink-0 items-center justify-center border-2 border-foreground",
           isUser ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground",
         )}
       >
@@ -22,9 +22,9 @@ export function ChatBubble({ message }: { message: ChatMessageView }) {
       </div>
       <div
         className={cn(
-          "max-w-[min(720px,calc(100%-3rem))] rounded-md border px-4 py-3",
+          "max-w-[min(720px,calc(100%-3rem))] border-2 border-foreground px-4 py-3 shadow-[3px_3px_0_hsl(var(--foreground))]",
           isUser ? "bg-primary text-primary-foreground" : "bg-background",
-          message.failed && "border-destructive/50 bg-destructive/10 text-destructive",
+          message.failed && "bg-destructive text-destructive-foreground",
         )}
       >
         {message.pending && !message.content ? (

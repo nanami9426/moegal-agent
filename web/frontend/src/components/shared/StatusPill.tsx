@@ -10,10 +10,10 @@ interface StatusPillProps {
 
 export function StatusPill({ icon: Icon, label, value }: StatusPillProps) {
   return (
-    <div className="flex h-10 items-center gap-2 rounded-md border bg-card px-3 text-sm shadow-sm">
+    <div className="pixel-panel-sm flex h-10 items-center gap-2 bg-card px-3 text-sm">
       <Icon className="h-4 w-4 text-primary" />
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold">{numberFormatter.format(value)}</span>
+      <span className="font-bold">{numberFormatter.format(value)}</span>
     </div>
   );
 }
