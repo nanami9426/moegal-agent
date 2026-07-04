@@ -36,8 +36,8 @@ import {
   type PlatformBindingItem,
   type Platform,
   registerWebUser,
-  sendWebChatMessage,
   startNewWebChat,
+  streamWebChatMessage,
   type SubscriptionItem,
   type TokenUsageByModelItem,
   type TokenUsageData,
@@ -1134,13 +1134,24 @@ function WebChatApp() {
     ]);
 
     try {
-      const reply = await sendWebChatMessage(token, message);
+      const reply = await streamWebChatMessage(token, message, (delta) => {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantMessageId
+              ? {
+                  ...item,
+                  content: item.content + delta,
+                }
+              : item,
+          ),
+        );
+      });
       setMessages((current) =>
         current.map((item) =>
           item.id === assistantMessageId
             ? {
                 ...item,
-                content: reply,
+                content: reply || item.content,
                 pending: false,
               }
             : item,
@@ -1433,13 +1444,18 @@ function ChatBubble({ message }: { message: ChatMessageView }) {
           message.failed && "border-destructive/50 bg-destructive/10 text-destructive",
         )}
       >
-        {message.pending ? (
+        {message.pending && !message.content ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
             生成中
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6">
+            {message.content}
+            {message.pending ? (
+              <RefreshCcw className="ml-2 inline h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : null}
+          </p>
         )}
       </div>
     </div>

@@ -126,6 +126,7 @@ Web 端聊天机器人使用独立的简单账号体系：
 - `GET /api/chat-history?platform=web&platform_user_id=1000000000`：返回当前 Web 用户会话和消息记录。
 - `GET /api/chat-history?platform=tg&platform_user_id=42`：登录且绑定对应 Bot 账号后，返回 Bot 用户会话和消息记录。
 - `POST /api/web-chat/messages`：发送 Web 聊天消息。
+- `POST /api/web-chat/messages/stream`：发送 Web 聊天消息，并通过 SSE 流式返回助手回复。
 - `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
 - `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
 

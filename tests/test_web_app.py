@@ -3,7 +3,7 @@ import unittest
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -437,6 +437,44 @@ class WebApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"reply": "你好呀"})
         route_mock.assert_awaited_once_with(
+            "web",
+            login_id,
+            "你好",
+            username="Alice Web",
+            display_name="Alice Web",
+        )
+
+    def test_web_chat_stream_requires_auth_and_streams_events(self) -> None:
+        registered = self.client.post(
+            "/api/auth/register",
+            json={"username": "Alice Web", "password": "secret1"},
+        )
+        token = registered.json()["token"]
+        login_id = str(registered.json()["user"]["id"])
+
+        missing_auth = self.client.post(
+            "/api/web-chat/messages/stream",
+            json={"message": "你好"},
+        )
+        self.assertEqual(missing_auth.status_code, 401)
+
+        async def fake_stream(*args, **kwargs):
+            yield "你"
+            yield "好"
+
+        stream_mock = MagicMock(side_effect=fake_stream)
+        with patch("web.api.chat.route_message_stream", stream_mock):
+            response = self.client.post(
+                "/api/web-chat/messages/stream",
+                json={"message": "  你好  "},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data: {"delta":"你"}', response.text)
+        self.assertIn('data: {"delta":"好"}', response.text)
+        self.assertIn('event: done\ndata: {"reply":"你好"}', response.text)
+        stream_mock.assert_called_once_with(
             "web",
             login_id,
             "你好",

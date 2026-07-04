@@ -1,7 +1,15 @@
+import json
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
-from agent.router import route_message, start_new_conversation_context
+from agent.router import (
+    route_message,
+    route_message_stream,
+    start_new_conversation_context,
+)
 from db.session import get_session
 from services.account.web_auth import AuthenticatedWebUser
 from web.api.dependencies import require_web_user
@@ -66,6 +74,61 @@ async def send_web_chat_message(
         display_name=current_user.username,
     )
     return WebChatMessageResponse(reply=reply)
+
+
+@router.post(
+    "/web-chat/messages/stream",
+    summary="流式发送 Web 聊天消息",
+    description=(
+        "Web 聊天接口。根据 bearer token 识别当前 Web 用户，用 text/event-stream "
+        "逐步返回助手回复；消息和最终回复会写入聊天历史。"
+    ),
+)
+async def stream_web_chat_message(
+    payload: WebChatMessageRequest,
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> StreamingResponse:
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="message is required.")
+
+    async def event_stream() -> AsyncIterator[str]:
+        reply_parts: list[str] = []
+        try:
+            async for chunk in route_message_stream(
+                "web",
+                current_user.login_id,
+                message,
+                username=current_user.username,
+                display_name=current_user.username,
+            ):
+                reply_parts.append(chunk)
+                data = json.dumps(
+                    {"delta": chunk},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                yield f"data: {data}\n\n"
+            data = json.dumps(
+                {"reply": "".join(reply_parts)},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            yield f"event: done\ndata: {data}\n\n"
+        except Exception as exc:
+            # 流式响应头已发出，后续错误只能通过 SSE 事件告诉前端。
+            data = json.dumps(
+                {"detail": str(exc)},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            yield f"event: error\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(

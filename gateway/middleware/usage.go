@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -78,7 +79,37 @@ func UsageLogger() gin.HandlerFunc {
 			Model string          `json:"model"`
 			Usage json.RawMessage `json:"usage"`
 		}
-		if err := json.Unmarshal(writer.body.Bytes(), &response); err != nil || len(response.Usage) == 0 || string(response.Usage) == "null" {
+		if err := json.Unmarshal(writer.body.Bytes(), &response); err != nil {
+			scanner := bufio.NewScanner(bytes.NewReader(writer.body.Bytes()))
+			// OpenAI 的 SSE 单行通常很短；这里放宽上限，避免长 usage 扩展字段被截断。
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
+
+				payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if payload == "" || payload == "[DONE]" {
+					continue
+				}
+
+				var chunk struct {
+					Model string          `json:"model"`
+					Usage json.RawMessage `json:"usage"`
+				}
+				if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+					continue
+				}
+				if chunk.Model != "" {
+					response.Model = chunk.Model
+				}
+				if usageText := strings.TrimSpace(string(chunk.Usage)); usageText != "" && usageText != "null" {
+					response.Usage = chunk.Usage
+				}
+			}
+		}
+		if usageText := strings.TrimSpace(string(response.Usage)); usageText == "" || usageText == "null" {
 			return
 		}
 

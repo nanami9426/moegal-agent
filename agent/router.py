@@ -1,5 +1,6 @@
 import base64
 import os
+from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -58,7 +59,9 @@ def start_new_conversation_context(
     )
 
 
-def _content_to_text(content: str | list[Any]) -> str:
+def _content_to_text(content: str | list[Any] | None) -> str:
+    if content is None:
+        return ""
     if isinstance(content, str):
         return content.strip()
 
@@ -180,6 +183,118 @@ async def route_message(
         },
     )
     return reply_text
+
+
+async def route_message_stream(
+    platform: str,
+    platform_user_id: str,
+    text: str,
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+    language_code: str | None = None,
+) -> AsyncIterator[str]:
+    text = text.strip()
+
+    if not text:
+        yield "你可以发送文本。"
+        return
+
+    # 流式接口复用同一套会话和消息落库逻辑，只把模型 token 提前吐给前端。
+    user = upsert_user(
+        platform=platform,
+        platform_user_id=platform_user_id,
+        username=username,
+        display_name=display_name,
+        language_code=language_code,
+    )
+    conversation = get_or_create_active_conversation(
+        user_id=user.id,
+        platform=platform,
+        platform_user_id=platform_user_id,
+    )
+    append_message(
+        conversation_id=conversation.id,
+        role="user",
+        content=text,
+        metadata_json={
+            "platform": platform,
+            "platform_user_id": platform_user_id,
+            "thread_id": conversation.thread_id,
+        },
+    )
+
+    chat_graph = await get_chat_graph()
+    final_messages: list[BaseMessage] | None = None
+    streamed_parts: list[str] = []
+
+    async for mode, data in chat_graph.astream(
+        {
+            "messages": [HumanMessage(content=text)],
+            "platform": platform,
+            "platform_user_id": platform_user_id,
+            "user_id": user.id,
+            "username": username,
+            "display_name": display_name,
+            "language_code": language_code,
+        },
+        config={"configurable": {"thread_id": conversation.thread_id}},
+        stream_mode=["messages", "values"],
+    ):
+        if mode == "values":
+            messages = data.get("messages") if isinstance(data, dict) else None
+            if isinstance(messages, list):
+                final_messages = messages
+            continue
+
+        if mode != "messages":
+            continue
+
+        message_chunk, metadata = data
+        if metadata.get("langgraph_node") != "agent":
+            continue
+        # 工具调用分片不是给用户看的文本，跳过后等待工具结果后的最终回复。
+        if (
+            getattr(message_chunk, "tool_call_chunks", None)
+            or getattr(message_chunk, "tool_calls", None)
+        ):
+            continue
+
+        content = message_chunk.content
+        if isinstance(content, str):
+            chunk_text = content
+        elif isinstance(content, list):
+            chunk_parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    chunk_parts.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    chunk_parts.append(item["text"])
+                else:
+                    chunk_parts.append(str(item))
+            chunk_text = "".join(chunk_parts)
+        else:
+            chunk_text = ""
+        if not chunk_text:
+            continue
+
+        streamed_parts.append(chunk_text)
+        yield chunk_text
+
+    reply_text = extract_final_text(final_messages or [])
+    if reply_text == "我现在没有生成可发送的回复。" and streamed_parts:
+        reply_text = "".join(streamed_parts).strip() or reply_text
+
+    append_message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=reply_text,
+        metadata_json={
+            "platform": platform,
+            "platform_user_id": platform_user_id,
+            "thread_id": conversation.thread_id,
+        },
+    )
 
 
 async def route_image_message(

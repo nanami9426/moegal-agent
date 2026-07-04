@@ -49,6 +49,7 @@ def _get_model_with_tools() -> Any:
         api_key=api_key,
         base_url=get_base_url(),
         temperature=0.6,
+        stream_usage=True,
     )
     return model.bind_tools(TOOLS)
 

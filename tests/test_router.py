@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
 from agent import graph as agent_graph
 from agent import router
@@ -113,6 +113,54 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             graph.ainvoke.await_args_list[1].kwargs["config"],
             {"configurable": {"thread_id": "00000000-0000-4000-8000-000000000099"}},
         )
+
+    async def test_route_message_stream_yields_chunks_and_stores_final_reply(self) -> None:
+        async def graph_stream(*args, **kwargs):
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="你"),
+                    {"langgraph_node": "agent"},
+                ),
+            )
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="好"),
+                    {"langgraph_node": "agent"},
+                ),
+            )
+            yield (
+                "values",
+                {
+                    "messages": [
+                        HumanMessage(content="你好"),
+                        AIMessage(content="你好"),
+                    ]
+                },
+            )
+
+        graph = SimpleNamespace(astream=graph_stream)
+        conversation = SimpleNamespace(
+            id=1,
+            thread_id="00000000-0000-4000-8000-000000000001",
+        )
+
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1001)),
+            patch.object(router, "get_or_create_active_conversation", return_value=conversation),
+            patch.object(router, "append_message") as append_message_mock,
+            patch.object(router, "get_chat_graph", AsyncMock(return_value=graph)),
+        ):
+            chunks = [
+                chunk
+                async for chunk in router.route_message_stream("web", "42", "  你好  ")
+            ]
+
+        self.assertEqual(chunks, ["你", "好"])
+        self.assertEqual(append_message_mock.call_count, 2)
+        self.assertEqual(append_message_mock.call_args_list[0].kwargs["content"], "你好")
+        self.assertEqual(append_message_mock.call_args_list[1].kwargs["content"], "你好")
 
     async def test_call_model_sends_x_user_id_header(self) -> None:
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="ok")))
