@@ -14,6 +14,7 @@ from services.account.conversations import (
     get_or_create_active_conversation,
     start_new_conversation,
 )
+from services.account.memories import build_memory_context
 from services.account.users import upsert_user
 from utils.llm import get_base_url, llm_user_headers
 
@@ -328,16 +329,28 @@ async def route_image_message(
     image_prompt = (prompt or "").strip() or DEFAULT_IMAGE_PROMPT
     b64_image = base64.b64encode(image_bytes).decode("utf8")
     image_url = f"data:{mime_type};base64,{b64_image}"
+    messages: list[BaseMessage] = [SystemMessage(content=IMAGE_SYSTEM_PROMPT)]
+    memory_context = build_memory_context(user_id)
+    if memory_context:
+        messages.append(
+            SystemMessage(
+                content=(
+                    "当前用户的长期记忆如下。回答图片问题时可以参考；"
+                    "如果与用户本轮图片或文字冲突，优先相信本轮内容。\n"
+                    f"{memory_context}"
+                )
+            )
+        )
+    messages.append(
+        HumanMessage(
+            content=[
+                {"type": "text", "text": image_prompt},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ]
+        )
+    )
     response = await _get_image_model().ainvoke(
-        [
-            SystemMessage(content=IMAGE_SYSTEM_PROMPT),
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": image_prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ]
-            ),
-        ],
+        messages,
         extra_headers=llm_user_headers(user_id),
     )
 

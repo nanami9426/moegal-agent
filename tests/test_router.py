@@ -260,6 +260,11 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1_000_000_001)),
+            patch.object(
+                router,
+                "build_memory_context",
+                return_value="- kind=preference; key=studio; content=用户喜欢芳文社。",
+            ),
             patch.object(router, "_get_image_model", return_value=model),
         ):
             result = await router.route_image_message(
@@ -273,10 +278,12 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
         model.ainvoke.assert_awaited_once()
         messages = model.ainvoke.await_args.args[0]
         self.assertIsInstance(messages[0], SystemMessage)
-        self.assertIsInstance(messages[1], HumanMessage)
-        self.assertEqual(messages[1].content[0], {"type": "text", "text": "这是什么？"})
+        self.assertIsInstance(messages[1], SystemMessage)
+        self.assertIn("用户喜欢芳文社", messages[1].content)
+        self.assertIsInstance(messages[2], HumanMessage)
+        self.assertEqual(messages[2].content[0], {"type": "text", "text": "这是什么？"})
         self.assertEqual(
-            messages[1].content[1],
+            messages[2].content[1],
             {
                 "type": "image_url",
                 "image_url": {

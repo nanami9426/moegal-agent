@@ -15,6 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from agent.state import MoegalState
 from agent.tools import TOOLS
 from db.session import get_psycopg_conninfo
+from services.account.memories import build_memory_context
 from services.account.users import upsert_user
 from utils.llm import get_base_url, llm_user_headers
 
@@ -22,23 +23,29 @@ from utils.llm import get_base_url, llm_user_headers
 SYSTEM_PROMPT = """你是鸽酱，一个面向二次元用户的智能助手。
 会积极解决用户的问题，给用户提供情绪价值，也懂得主动向用户发起话题。
 用简短、自然的中文回复，不要复读用户原文。
+你可以使用长期记忆工具：当用户明确要求记住、忘记、查看长期信息，或表达稳定偏好/个人资料且后续对话明显有用时，调用对应工具。
+不要保存密码、令牌、身份证、银行卡等敏感信息；用户更正记忆时，及时更新或删除。
 """
 
 
 def prepare_context(state: MoegalState) -> dict[str, Any]:
     # router 已经落库并传入 user_id 时，避免在图节点里重复 upsert 用户。
-    if state.get("user_id") is not None:
-        return {"user_id": state["user_id"]}
+    user_id = state.get("user_id")
+    if user_id is None:
+        user = upsert_user(
+            platform=state["platform"],
+            platform_user_id=state["platform_user_id"],
+            # ↑必须有的字段，↓附加资料
+            username=state.get("username"),
+            display_name=state.get("display_name"),
+            language_code=state.get("language_code"),
+        )
+        user_id = user.id
 
-    user = upsert_user(
-        platform=state["platform"],
-        platform_user_id=state["platform_user_id"],
-        # ↑必须有的字段，↓附加资料
-        username=state.get("username"),
-        display_name=state.get("display_name"),
-        language_code=state.get("language_code"),
-    )
-    return {"user_id": user.id}
+    return {
+        "user_id": user_id,
+        "memory_context": build_memory_context(user_id),
+    }
 
 
 @lru_cache
@@ -58,7 +65,19 @@ def _get_model_with_tools() -> Any:
 
 
 async def call_model(state: MoegalState) -> dict[str, list[BaseMessage]]:
-    messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    memory_context = (state.get("memory_context") or "").strip()
+    if memory_context:
+        messages.append(
+            SystemMessage(
+                content=(
+                    "当前用户的长期记忆如下。它们可能不完整；如果用户纠正，"
+                    "优先相信用户本轮消息并调用记忆工具更新。\n"
+                    f"{memory_context}"
+                )
+            )
+        )
+    messages.extend(state["messages"])
     response = await _get_model_with_tools().ainvoke(
         messages,
         extra_headers=llm_user_headers(state.get("user_id")),

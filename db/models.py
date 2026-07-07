@@ -140,6 +140,30 @@ class Subscription(SQLModel, table=True):
     last_checked_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
+class UserMemory(SQLModel, table=True):
+    __tablename__ = "user_memories"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "key", name="uq_user_memories_user_kind_key"),
+        Index(
+            "ix_user_memories_user_active_updated",
+            "user_id",
+            "is_active",
+            "updated_at",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+    )
+    kind: str = Field(default="note", index=True, max_length=32)
+    key: str = Field(max_length=128)
+    content: str = Field(nullable=False)
+    is_active: bool = Field(default=True, index=True, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+
+
 class ContentItem(SQLModel, table=True):
     __tablename__ = "content_items"
     __table_args__ = (
