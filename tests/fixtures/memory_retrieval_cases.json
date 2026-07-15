@@ -1,0 +1,26 @@
+[
+  {
+    "query": "给我推荐一部芳文社的新动画",
+    "expected_keys": ["preference.anime.studio"],
+    "memories": [
+      {"kind": "preference", "key": "preference.anime.studio", "content": "用户喜欢芳文社日常系动画。", "importance": 0.8},
+      {"kind": "note", "key": "food.breakfast", "content": "用户早餐吃过面包。", "importance": 0.2}
+    ]
+  },
+  {
+    "query": "推荐漫画时别踩我的雷点",
+    "expected_keys": ["dislike.spoiler"],
+    "memories": [
+      {"kind": "dislike", "key": "dislike.spoiler", "content": "用户不喜欢作品剧透。", "importance": 0.9},
+      {"kind": "preference", "key": "preference.music", "content": "用户喜欢爵士乐。", "importance": 0.6}
+    ]
+  },
+  {
+    "query": "继续之前制定的学习计划",
+    "expected_keys": ["goal.japanese"],
+    "memories": [
+      {"kind": "note", "key": "goal.japanese", "content": "用户计划每天学习半小时日语。", "importance": 0.8},
+      {"kind": "profile", "key": "profile.nickname", "content": "用户希望被称呼为小鸽。", "importance": 0.7}
+    ]
+  }
+]

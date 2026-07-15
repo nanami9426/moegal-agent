@@ -24,6 +24,14 @@ class _FakeAsyncPool:
 
 
 class RouterContextTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        # 路由单测不启动真实后台任务；巩固流水线由独立测试覆盖。
+        self.schedule_patcher = patch.object(router, "_schedule_memory_consolidation")
+        self.schedule_mock = self.schedule_patcher.start()
+
+    def tearDown(self) -> None:
+        self.schedule_patcher.stop()
+
     async def test_route_message_uses_conversation_thread_id(self) -> None:
         graph = SimpleNamespace(
             ainvoke=AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
@@ -68,6 +76,23 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             graph.ainvoke.await_args_list[1].kwargs["config"],
             {"configurable": {"thread_id": second_thread_id}},
         )
+
+    def test_new_conversation_forces_ended_conversation_consolidation(self) -> None:
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1001)),
+            patch.object(
+                router,
+                "start_new_conversation",
+                return_value=SimpleNamespace(
+                    context=SimpleNamespace(id=2, thread_id="new-thread"),
+                    created=True,
+                    ended_conversation_id=1,
+                ),
+            ),
+        ):
+            router.start_new_conversation_context("tg", "42")
+
+        self.schedule_mock.assert_called_once_with(1, user_id=1001, force=True)
 
     async def test_conversation_thread_ids_are_scoped_per_user(self) -> None:
         graph = SimpleNamespace(
@@ -175,6 +200,34 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(append_message_mock.call_args_list[0].kwargs["content"], "你好")
         self.assertEqual(append_message_mock.call_args_list[1].kwargs["content"], "你好")
 
+    async def test_temporary_message_uses_memory_only_graph_without_chat_log(self) -> None:
+        graph = SimpleNamespace(
+            ainvoke=AsyncMock(return_value={"messages": [AIMessage(content="临时回复")]})
+        )
+        with (
+            patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1001)),
+            patch.object(router, "get_temporary_chat_graph", return_value=graph),
+            patch.object(router, "get_or_create_active_conversation") as conversation_mock,
+            patch.object(router, "append_message") as append_mock,
+        ):
+            result = await router.route_message(
+                "web",
+                "42",
+                "临时问题",
+                temporary=True,
+                temporary_thread_id="abc-123",
+            )
+
+        self.assertEqual(result, "临时回复")
+        conversation_mock.assert_not_called()
+        append_mock.assert_not_called()
+        invocation = graph.ainvoke.await_args
+        self.assertFalse(invocation.args[0]["memory_enabled"])
+        self.assertEqual(
+            invocation.kwargs["config"],
+            {"configurable": {"thread_id": "temporary:1001:abc-123"}},
+        )
+
     async def test_call_model_sends_x_user_id_header(self) -> None:
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content="ok")))
 
@@ -262,9 +315,14 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             patch.object(router, "upsert_user", return_value=SimpleNamespace(id=1_000_000_001)),
             patch.object(
                 router,
+                "get_memory_settings",
+                return_value=SimpleNamespace(enabled=True, use_chat_history=True),
+            ),
+            patch.object(
+                router,
                 "build_memory_context",
                 return_value="- kind=preference; key=studio; content=用户喜欢芳文社。",
-            ),
+            ) as build_memory_context,
             patch.object(router, "_get_image_model", return_value=model),
         ):
             result = await router.route_image_message(
@@ -275,6 +333,12 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, "图片回答")
+        build_memory_context.assert_called_once_with(
+            1_000_000_001,
+            query="这是什么？",
+            namespaces=["global", "platform:tg"],
+            include_chat_history=True,
+        )
         model.ainvoke.assert_awaited_once()
         messages = model.ainvoke.await_args.args[0]
         self.assertIsInstance(messages[0], SystemMessage)

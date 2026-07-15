@@ -1,7 +1,7 @@
 import os
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlmodel import Session, SQLModel
 
@@ -61,6 +61,56 @@ def get_engine() -> Engine:
 def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
+    _upgrade_memory_schema(engine)
+
+
+def _upgrade_memory_schema(engine: Engine) -> None:
+    """为 create_all 无法修改的旧表补齐记忆字段。
+
+    项目暂未引入正式迁移框架，因此这里只维护一段 PostgreSQL 幂等升级；新数据库
+    会由 SQLModel 直接创建完整结构。
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    statements = (
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS namespace VARCHAR(255) NOT NULL DEFAULT 'global'",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'legacy'",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 1.0",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS importance DOUBLE PRECISION NOT NULL DEFAULT 0.5",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS source_message_id INTEGER NULL",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NULL",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ NULL",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS access_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS metadata_json JSON NOT NULL DEFAULT '{}'::json",
+        "CREATE INDEX IF NOT EXISTS ix_user_memories_source ON user_memories (source)",
+        "CREATE INDEX IF NOT EXISTS ix_user_memories_namespace ON user_memories (namespace)",
+        "CREATE INDEX IF NOT EXISTS ix_user_memories_source_message_id ON user_memories (source_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_memories_expires_at ON user_memories (expires_at)",
+        """
+        CREATE INDEX IF NOT EXISTS ix_user_memories_search
+        ON user_memories USING GIN (
+            to_tsvector('simple', coalesce(key, '') || ' ' || coalesce(content, ''))
+        )
+        """,
+        "ALTER TABLE user_memories DROP CONSTRAINT IF EXISTS uq_user_memories_user_kind_key",
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_user_memories_user_namespace_kind_key'
+            ) THEN
+                ALTER TABLE user_memories
+                ADD CONSTRAINT uq_user_memories_user_namespace_kind_key
+                UNIQUE (user_id, namespace, kind, key);
+            END IF;
+        END $$
+        """,
+    )
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
 
 
 def get_session() -> Generator[Session, None, None]:

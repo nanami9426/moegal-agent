@@ -21,6 +21,7 @@ class ConversationContext:
 class NewConversationResult:
     context: ConversationContext | None
     created: bool
+    ended_conversation_id: int | None = None
 
 
 def get_or_create_active_conversation(
@@ -130,6 +131,7 @@ def start_new_conversation(
         return NewConversationResult(
             context=_to_context(conversation),
             created=True,
+            ended_conversation_id=latest_active.id,
         )
 
 

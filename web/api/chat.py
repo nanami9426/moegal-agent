@@ -12,9 +12,22 @@ from agent.router import (
 )
 from db.session import get_session
 from services.account.web_auth import AuthenticatedWebUser
+from services.account.memories import (
+    forget_all_memories,
+    forget_memory_by_id,
+    get_memory_settings,
+    list_memories,
+    update_memory_by_id,
+    update_memory_settings,
+)
 from web.api.dependencies import require_web_user
 from web.schemas import (
     ChatHistoryResponse,
+    MemoriesResponse,
+    MemoryItem,
+    MemorySettingsItem,
+    MemorySettingsUpdateRequest,
+    MemoryUpdateRequest,
     WebChatMessageRequest,
     WebChatMessageResponse,
 )
@@ -72,6 +85,8 @@ async def send_web_chat_message(
         message,
         username=current_user.username,
         display_name=current_user.username,
+        temporary=payload.temporary,
+        temporary_thread_id=payload.temporary_thread_id,
     )
     return WebChatMessageResponse(reply=reply)
 
@@ -101,6 +116,8 @@ async def stream_web_chat_message(
                 message,
                 username=current_user.username,
                 display_name=current_user.username,
+                temporary=payload.temporary,
+                temporary_thread_id=payload.temporary_thread_id,
             ):
                 reply_parts.append(chunk)
                 data = json.dumps(
@@ -151,3 +168,99 @@ def start_new_web_chat(
     if result.created:
         return {"created": True, "message": "已开启新的对话。"}
     return {"created": False, "message": "已在新对话中。"}
+
+
+@router.get(
+    "/web-chat/memories",
+    response_model=MemoriesResponse,
+    summary="查看当前用户长期记忆",
+)
+def get_web_chat_memories(
+    limit: int = Query(50, ge=1, le=50),
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> MemoriesResponse:
+    return MemoriesResponse(
+        memories=[
+            MemoryItem.model_validate(memory)
+            for memory in list_memories(current_user.user_id, limit=limit)
+        ]
+    )
+
+
+@router.patch(
+    "/web-chat/memories/{memory_id}",
+    response_model=MemoryItem,
+    summary="纠正一条长期记忆",
+)
+def patch_web_chat_memory(
+    memory_id: int,
+    payload: MemoryUpdateRequest,
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> MemoryItem:
+    try:
+        memory = update_memory_by_id(
+            current_user.user_id,
+            memory_id,
+            content=payload.content,
+            confidence=payload.confidence,
+            importance=payload.importance,
+            expires_at=payload.expires_at,
+            update_expires_at="expires_at" in payload.model_fields_set,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+    return MemoryItem.model_validate(memory)
+
+
+@router.delete(
+    "/web-chat/memories/{memory_id}",
+    summary="删除一条长期记忆",
+)
+def delete_web_chat_memory(
+    memory_id: int,
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> dict[str, bool]:
+    if not forget_memory_by_id(current_user.user_id, memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found.")
+    return {"deleted": True}
+
+
+@router.delete(
+    "/web-chat/memories",
+    summary="清空当前用户长期记忆",
+)
+def clear_web_chat_memories(
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> dict[str, int]:
+    return {"deleted_count": forget_all_memories(current_user.user_id)}
+
+
+@router.get(
+    "/web-chat/memory-settings",
+    response_model=MemorySettingsItem,
+    summary="读取当前用户记忆设置",
+)
+def get_web_chat_memory_settings(
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> MemorySettingsItem:
+    return MemorySettingsItem.model_validate(get_memory_settings(current_user.user_id))
+
+
+@router.patch(
+    "/web-chat/memory-settings",
+    response_model=MemorySettingsItem,
+    summary="修改当前用户记忆设置",
+)
+def patch_web_chat_memory_settings(
+    payload: MemorySettingsUpdateRequest,
+    current_user: AuthenticatedWebUser = Depends(require_web_user),
+) -> MemorySettingsItem:
+    settings = update_memory_settings(
+        current_user.user_id,
+        enabled=payload.enabled,
+        auto_extract=payload.auto_extract,
+        use_chat_history=payload.use_chat_history,
+    )
+    return MemorySettingsItem.model_validate(settings)

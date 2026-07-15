@@ -7,7 +7,15 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
+from agent.graph import close_chat_graphs
 from bots.tg import handlers as tg_handlers
+from services.account.memory_consolidation import close_memory_consolidation_tasks
+
+
+async def _close_agent_resources(_application: Application) -> None:
+    await close_memory_consolidation_tasks()
+    await close_chat_graphs()
+
 
 def build_application() -> Application:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -18,7 +26,7 @@ def build_application() -> Application:
             "Missing TELEGRAM_BOT_TOKEN. 请先在 .env 里配置 Telegram Bot Token。"
         )
 
-    builder = Application.builder().token(token)
+    builder = Application.builder().token(token).post_shutdown(_close_agent_resources)
     if proxy_url:
         builder = builder.request(HTTPXRequest(proxy=proxy_url)).get_updates_request(
             HTTPXRequest(proxy=proxy_url)

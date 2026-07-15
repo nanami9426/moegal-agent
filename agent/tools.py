@@ -82,20 +82,32 @@ def remember_user_memory(
     key: str,
     content: str,
     user_id: Annotated[int, InjectedState("user_id")],
+    memory_enabled: Annotated[bool, InjectedState("memory_enabled")],
     kind: str = "note",
+    source: str = "explicit",
+    confidence: float = 1.0,
+    importance: float = 0.5,
 ) -> str:
     """Store or update a long-term memory about the current user.
 
     Use this when the user asks you to remember something, gives a stable preference,
     or corrects profile/preference information that should persist across chats.
     kind should be one of: profile, preference, dislike, note.
+    source should be explicit for user-stated facts and inferred for deductions.
+    Use lower confidence for inferred memories. importance is between 0 and 1.
     """
+    if not memory_enabled:
+        return "临时对话不会保存长期记忆。"
+
     try:
         result = remember_memory_record(
             user_id=user_id,
             kind=kind,
             key=key,
             content=content,
+            source=source,
+            confidence=confidence,
+            importance=importance,
         )
     except ValueError as exc:
         return f"无法保存记忆：{exc}"
@@ -113,6 +125,7 @@ def remember_user_memory(
 def forget_user_memory(
     key: str,
     user_id: Annotated[int, InjectedState("user_id")],
+    memory_enabled: Annotated[bool, InjectedState("memory_enabled")],
     kind: str = "",
 ) -> str:
     """Forget a long-term memory about the current user.
@@ -120,6 +133,9 @@ def forget_user_memory(
     Use this when the user asks you to forget or delete remembered information.
     Leave kind empty if the user did not specify the memory category.
     """
+    if not memory_enabled:
+        return "临时对话不会读取或修改长期记忆。"
+
     try:
         forgotten_count = forget_memory_record(
             user_id=user_id,
@@ -138,9 +154,12 @@ def forget_user_memory(
 @tool
 def list_user_memories(
     user_id: Annotated[int, InjectedState("user_id")],
+    memory_enabled: Annotated[bool, InjectedState("memory_enabled")],
     limit: int = 20,
 ) -> str:
     """List active long-term memories stored for the current user."""
+    if not memory_enabled:
+        return "临时对话不会读取长期记忆。"
     memories = list_memory_records(user_id=user_id, limit=limit)
     if not memories:
         return "我还没有保存你的长期记忆。"

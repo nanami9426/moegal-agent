@@ -14,6 +14,7 @@ from botpy.message import C2CMessage
 from config.paths import BOTPY_LOG_PATH, LOG_DIR, QQ_SAVED_PICTURES_DIR, QQ_TRANSLATED_IMAGES_DIR
 from utils.logger import logger
 from agent.router import route_message, start_new_conversation_context
+from agent.graph import close_chat_graphs
 from services.account.bindings import complete_platform_link
 from services.image_workflow import (
     ImageWorkflowResult,
@@ -22,6 +23,7 @@ from services.image_workflow import (
     handle_incoming_image,
     handle_pending_image_reply,
 )
+from services.account.memory_consolidation import close_memory_consolidation_tasks
 
 
 PENDING_TRANSLATE_COMMAND = "/translate"
@@ -366,5 +368,8 @@ def run_client() -> None:
     except Exception:
         logger.exception("QQ bot stopped unexpectedly.")
     finally:
+        if not loop.is_closed():
+            loop.run_until_complete(close_memory_consolidation_tasks())
+            loop.run_until_complete(close_chat_graphs())
         asyncio.set_event_loop(None)
         loop.close()

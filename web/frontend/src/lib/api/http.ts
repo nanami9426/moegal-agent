@@ -16,6 +16,23 @@ export async function postJson<T>(path: string, body?: unknown, token?: string):
   return parseJsonResponse<T>(response);
 }
 
+export async function patchJson<T>(path: string, body: unknown, token?: string): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: "PATCH",
+    headers: buildHeaders(token, body),
+    body: JSON.stringify(body),
+  });
+  return parseJsonResponse<T>(response);
+}
+
+export async function deleteJson<T>(path: string, token?: string): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: "DELETE",
+    headers: buildHeaders(token),
+  });
+  return parseJsonResponse<T>(response);
+}
+
 export function buildHeaders(token?: string, body?: unknown): HeadersInit {
   // Web 聊天和管理后台都用 Bearer token，后端再按绑定关系做数据隔离。
   const headers: Record<string, string> = {};

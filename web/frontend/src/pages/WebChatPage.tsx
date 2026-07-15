@@ -7,6 +7,8 @@ import {
 import {
   AlertCircle,
   Bot,
+  Brain,
+  Ghost,
   KeyRound,
   LogIn,
   LogOut,
@@ -33,6 +35,7 @@ import { webTokenStorageKey } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { ChatBubble } from "@/components/chat/ChatBubble";
+import { MemoryPanel } from "@/components/chat/MemoryPanel";
 import {
   messagesFromConversations,
   type ChatMessageView,
@@ -70,6 +73,9 @@ export function WebChatPage() {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isStartingNew, setIsStartingNew] = useState(false);
+  const [showMemories, setShowMemories] = useState(false);
+  const [temporaryChat, setTemporaryChat] = useState(false);
+  const [temporaryThreadId, setTemporaryThreadId] = useState(() => crypto.randomUUID());
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   function focusMessageInput() {
@@ -237,7 +243,7 @@ export function WebChatPage() {
               : item,
           ),
         );
-      });
+      }, temporaryChat, temporaryThreadId);
       setMessages((current) =>
         current.map((item) =>
           item.id === assistantMessageId
@@ -428,6 +434,17 @@ export function WebChatPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <IconTooltip label="记忆管理">
+              <Button
+                aria-label="记忆管理"
+                onClick={() => setShowMemories((current) => !current)}
+                size="icon"
+                type="button"
+                variant={showMemories ? "default" : "outline"}
+              >
+                <Brain />
+              </Button>
+            </IconTooltip>
             <IconTooltip label="新会话">
               <Button
                 aria-label="新会话"
@@ -470,6 +487,7 @@ export function WebChatPage() {
       </header>
 
       <section className="container flex min-h-0 flex-1 flex-col py-5">
+        {showMemories ? <MemoryPanel token={token} /> : null}
         <div className="pixel-panel min-h-0 flex-1 overflow-y-auto bg-card p-4">
           {messages.length === 0 ? (
             <div className="flex min-h-[52vh] items-center justify-center text-center">
@@ -490,7 +508,21 @@ export function WebChatPage() {
           )}
         </div>
 
-        <form className="mt-4 flex gap-2" onSubmit={handleSendMessage}>
+        <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-xs font-bold text-muted-foreground">
+          <input
+            checked={temporaryChat}
+            onChange={(event) => {
+              setTemporaryChat(event.target.checked);
+              setTemporaryThreadId(crypto.randomUUID());
+              setMessages([]);
+            }}
+            type="checkbox"
+          />
+          <Ghost className="h-4 w-4" />
+          临时聊天（不读取长期记忆，不保存到数据库）
+        </label>
+
+        <form className="mt-2 flex gap-2" onSubmit={handleSendMessage}>
           <textarea
             className="min-h-12 flex-1 resize-none border-2 border-input bg-card px-3 py-3 text-sm font-bold leading-5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             onChange={(event) => setDraft(event.target.value)}

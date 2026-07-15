@@ -1,5 +1,16 @@
-import { apiBaseUrl, buildHeaders, getJson, postJson } from "./http";
-import type { ConversationHistory } from "./types";
+import {
+  apiBaseUrl,
+  buildHeaders,
+  deleteJson,
+  getJson,
+  patchJson,
+  postJson,
+} from "./http";
+import type {
+  ConversationHistory,
+  MemoryItem,
+  MemorySettings,
+} from "./types";
 
 export async function fetchWebChatHistory(token: string): Promise<ConversationHistory[]> {
   const payload = await getJson<{ conversations: ConversationHistory[] }>(
@@ -13,11 +24,13 @@ export async function streamWebChatMessage(
   token: string,
   message: string,
   onDelta: (delta: string) => void,
+  temporary = false,
+  temporaryThreadId?: string,
 ): Promise<string> {
   const response = await fetch(`${apiBaseUrl}/api/web-chat/messages/stream`, {
     method: "POST",
-    headers: buildHeaders(token, { message }),
-    body: JSON.stringify({ message }),
+    headers: buildHeaders(token, { message, temporary, temporary_thread_id: temporaryThreadId }),
+    body: JSON.stringify({ message, temporary, temporary_thread_id: temporaryThreadId }),
   });
   if (!response.ok) {
     let detail = response.statusText;
@@ -82,4 +95,39 @@ export async function streamWebChatMessage(
 
 export async function startNewWebChat(token: string): Promise<{ created: boolean; message: string }> {
   return postJson<{ created: boolean; message: string }>("/api/web-chat/new", undefined, token);
+}
+
+export async function fetchWebMemories(token: string): Promise<MemoryItem[]> {
+  const payload = await getJson<{ memories: MemoryItem[] }>(
+    "/api/web-chat/memories?limit=50",
+    token,
+  );
+  return payload.memories;
+}
+
+export function fetchMemorySettings(token: string): Promise<MemorySettings> {
+  return getJson<MemorySettings>("/api/web-chat/memory-settings", token);
+}
+
+export function updateMemorySettings(
+  token: string,
+  updates: Partial<Pick<MemorySettings, "enabled" | "auto_extract" | "use_chat_history">>,
+): Promise<MemorySettings> {
+  return patchJson<MemorySettings>("/api/web-chat/memory-settings", updates, token);
+}
+
+export function updateWebMemory(
+  token: string,
+  memoryId: number,
+  updates: Pick<MemoryItem, "content">,
+): Promise<MemoryItem> {
+  return patchJson<MemoryItem>(`/api/web-chat/memories/${memoryId}`, updates, token);
+}
+
+export function deleteWebMemory(token: string, memoryId: number): Promise<{ deleted: boolean }> {
+  return deleteJson<{ deleted: boolean }>(`/api/web-chat/memories/${memoryId}`, token);
+}
+
+export function clearWebMemories(token: string): Promise<{ deleted_count: number }> {
+  return deleteJson<{ deleted_count: number }>("/api/web-chat/memories", token);
 }

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SubscriptionItem(BaseModel):
@@ -129,7 +129,53 @@ class WebMeResponse(BaseModel):
 
 class WebChatMessageRequest(BaseModel):
     message: str
+    temporary: bool = False
+    temporary_thread_id: str | None = Field(default=None, max_length=128)
 
 
 class WebChatMessageResponse(BaseModel):
     reply: str
+
+
+class MemoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    namespace: str
+    kind: str
+    key: str
+    content: str
+    source: str
+    confidence: float
+    importance: float
+    expires_at: datetime | None
+    last_accessed_at: datetime | None
+    access_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoriesResponse(BaseModel):
+    memories: list[MemoryItem]
+
+
+class MemoryUpdateRequest(BaseModel):
+    content: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    importance: float | None = Field(default=None, ge=0, le=1)
+    expires_at: datetime | None = None
+
+
+class MemorySettingsItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool
+    auto_extract: bool
+    use_chat_history: bool
+    updated_at: datetime
+
+
+class MemorySettingsUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    auto_extract: bool | None = None
+    use_chat_history: bool | None = None

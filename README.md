@@ -17,6 +17,10 @@ Moegal Agent 是一个面向二次元内容订阅场景的 Telegram/QQ 助手。
 - PostgreSQL
 - Docker
 
+## 文档
+
+- [记忆系统实现说明](doc/memory-system.md)
+
 ## 配置
 
 项目启动时会读取仓库根目录下的 `.env` 文件。最小配置示例：
@@ -47,6 +51,8 @@ QQ_BOT_SK=
 - `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
 - `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
 - `MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM`：每个 Web 用户同平台最多可绑定的 Bot 账号数，默认 `2`。
+- `MOEGAL_CONTEXT_MAX_TOKENS`：模型热路径保留的最近会话 token 预算，默认 `12000`。
+- `MOEGAL_MEMORY_CONSOLIDATION_MESSAGES`：触发后台记忆巩固的新消息数，默认 `12`，范围 4 到 100。
 - `MOEGAL_PUBLIC_ASSET_BASE_URL`：QQ 图片回图必需。翻译后图片的公开静态资源地址，例如 `https://static.example.com/moegal-qq`。
 - `MOEGAL_QQ_IMAGE_REMOTE_HOST`：QQ 图片回图必需。SFTP 上传目标主机。
 - `MOEGAL_QQ_IMAGE_REMOTE_PORT`：远端 SSH 端口，默认 `22`。
@@ -129,6 +135,12 @@ Web 端聊天机器人使用独立的简单账号体系：
 - `POST /api/web-chat/messages/stream`：发送 Web 聊天消息，并通过 SSE 流式返回助手回复。
 - `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
 - `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
+- `GET /api/web-chat/memories`：查看当前 Web 用户的有效长期记忆。
+- `PATCH/DELETE /api/web-chat/memories/{id}`：纠正或删除一条长期记忆。
+- `DELETE /api/web-chat/memories`：清空全部长期记忆，但保留聊天历史。
+- `GET/PATCH /api/web-chat/memory-settings`：读取或修改记忆、自动整理和历史引用开关。
+
+Web 消息请求可以传入 `temporary=true` 和客户端生成的 `temporary_thread_id` 开启临时聊天。临时聊天只在进程内保持当前会话连续性，不读取长期记忆，也不会写入 `conversations`、`messages` 或 PostgreSQL checkpoint。
 
 绑定流程：Web 用户在 `/admin` 申请绑定码，然后在 Telegram 或 QQ bot 内发送
 `/link 绑定码`。绑定成功后，管理后台可以查看当前 Web 账号和已绑定 Bot 账号的订阅和聊天历史。
@@ -224,6 +236,18 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 `conversations` 表保存每个平台用户的会话版本和当前活跃会话；`thread_id` 使用随机 UUID，并作为 LangGraph checkpoint 的会话隔离键。
 `messages` 表保存用户输入和最终助手回复，方便后续查询聊天记录。
 执行 `/newchat` 会在当前活跃会话已有消息时结束旧版本并创建新版本；如果当前已经是空新对话，则只提示已在新对话中，不会额外创建空记录。
+
+模型热路径会按 `MOEGAL_CONTEXT_MAX_TOKENS`（默认 `12000`）裁剪较早消息，数据库 checkpoint 仍保留完整会话。
+长期记忆根据本轮消息，从有效记忆中使用 namespace、数据库关键词/全文候选和应用层相关性混合召回，综合重要度、置信度和新鲜度排序，默认召回最多 6 条，并限制为约 1600 字符的 JSON 上下文。
+`user_memories` 保存语义记忆的来源、置信度、重要度、过期时间和访问统计；`memory_revisions` 保存创建、更新、恢复及遗忘轨迹。
+每累计 `MOEGAL_MEMORY_CONSOLIDATION_MESSAGES` 条新消息会后台生成滚动摘要，并在 `/newchat` 时强制收尾。`conversation_memories` 保存平台隔离的情景摘要、主题和未完成事项；巩固器会把稳定用户事实写回全局语义记忆，并再次过滤敏感信息。
+`user_memory_settings` 保存用户的记忆启用、自动整理和历史引用开关。Web 聊天页提供记忆查看、纠正、删除、清空和临时聊天入口。
+
+可以运行轻量检索评测：
+
+```bash
+uv run python -m scripts.evaluate_memory_retrieval
+```
 
 ## QQ C2C
 

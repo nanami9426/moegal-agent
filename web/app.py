@@ -4,7 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from config.settings import init_settings
+from agent.graph import close_chat_graphs
 from db.session import init_db
+from services.account.memory_consolidation import close_memory_consolidation_tasks
 from web.api import router
 
 
@@ -14,7 +16,11 @@ def create_app(*, init_database: bool = True) -> FastAPI:
         init_settings()
         if init_database:
             init_db()
-        yield
+        try:
+            yield
+        finally:
+            await close_memory_consolidation_tasks()
+            await close_chat_graphs()
 
     app = FastAPI(
         title="Moegal Agent Web API",

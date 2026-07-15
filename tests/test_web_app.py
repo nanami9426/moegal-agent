@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
-from db.models import Conversation, LLMTokenUsage, Message, Subscription, User
+from db.models import Conversation, LLMTokenUsage, Message, Subscription, User, UserMemory
 from services.account.bindings import complete_platform_link
 from web.app import create_app
 
@@ -29,6 +29,10 @@ class WebApiTest(unittest.TestCase):
         self.stack.enter_context(patch("db.session.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.bindings.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.web_auth.get_engine", return_value=self.engine))
+        self.stack.enter_context(patch("services.account.memories.get_engine", return_value=self.engine))
+        self.stack.enter_context(
+            patch("services.account.conversation_memories.get_engine", return_value=self.engine)
+        )
         self.client = TestClient(create_app(init_database=False))
 
     def tearDown(self) -> None:
@@ -442,6 +446,8 @@ class WebApiTest(unittest.TestCase):
             "你好",
             username="Alice Web",
             display_name="Alice Web",
+            temporary=False,
+            temporary_thread_id=None,
         )
 
     def test_web_chat_stream_requires_auth_and_streams_events(self) -> None:
@@ -480,6 +486,8 @@ class WebApiTest(unittest.TestCase):
             "你好",
             username="Alice Web",
             display_name="Alice Web",
+            temporary=False,
+            temporary_thread_id=None,
         )
 
     def test_web_chat_new_reports_empty_current_conversation(self) -> None:
@@ -549,6 +557,103 @@ class WebApiTest(unittest.TestCase):
         conversations = response.json()["conversations"]
         self.assertEqual(len(conversations), 1)
         self.assertEqual(conversations[0]["messages"][0]["content"], "Web 消息")
+
+    def test_web_memory_management_and_settings(self) -> None:
+        token, user_id = self._register_web_user()
+        with Session(self.engine) as session:
+            memory = UserMemory(
+                user_id=user_id,
+                namespace="global",
+                kind="preference",
+                key="preference.anime.genre",
+                content="用户喜欢日常系动画。",
+            )
+            session.add(memory)
+            session.commit()
+            session.refresh(memory)
+            memory_id = memory.id
+
+        listed = self.client.get(
+            "/api/web-chat/memories",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["memories"][0]["id"], memory_id)
+
+        updated = self.client.patch(
+            f"/api/web-chat/memories/{memory_id}",
+            json={"content": "用户现在更喜欢治愈系动画。", "importance": 0.9},
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["content"], "用户现在更喜欢治愈系动画。")
+        self.assertEqual(updated.json()["importance"], 0.9)
+
+        settings = self.client.get(
+            "/api/web-chat/memory-settings",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(settings.status_code, 200)
+        self.assertTrue(settings.json()["enabled"])
+
+        paused = self.client.patch(
+            "/api/web-chat/memory-settings",
+            json={"enabled": False, "auto_extract": False},
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(paused.status_code, 200)
+        self.assertFalse(paused.json()["enabled"])
+        self.assertFalse(paused.json()["auto_extract"])
+
+        deleted = self.client.delete(
+            f"/api/web-chat/memories/{memory_id}",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json(), {"deleted": True})
+
+        with Session(self.engine) as session:
+            session.add(
+                UserMemory(
+                    user_id=user_id,
+                    namespace="global",
+                    kind="note",
+                    key="another.memory",
+                    content="另一条记忆。",
+                )
+            )
+            session.commit()
+        cleared = self.client.delete(
+            "/api/web-chat/memories",
+            headers=self._auth_headers(token),
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(cleared.json(), {"deleted_count": 1})
+
+    def test_web_temporary_chat_passes_non_persistent_options(self) -> None:
+        token, user_id = self._register_web_user()
+        with patch("web.api.chat.route_message", AsyncMock(return_value="临时回复")) as route_mock:
+            response = self.client.post(
+                "/api/web-chat/messages",
+                json={
+                    "message": "不要记住这句话",
+                    "temporary": True,
+                    "temporary_thread_id": "temp-1",
+                },
+                headers=self._auth_headers(token),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"reply": "临时回复"})
+        route_mock.assert_awaited_once_with(
+            "web",
+            str(user_id),
+            "不要记住这句话",
+            username="Alice Web",
+            display_name="Alice Web",
+            temporary=True,
+            temporary_thread_id="temp-1",
+        )
 
     def _register_web_user(
         self,
