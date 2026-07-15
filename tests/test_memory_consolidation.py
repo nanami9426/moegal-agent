@@ -1,8 +1,12 @@
+import json
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
+from langchain_core.messages import AIMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
@@ -104,7 +108,14 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        model = SimpleNamespace(ainvoke=AsyncMock(return_value=output))
+        # OpenAI 兼容接口只需返回普通文本，不依赖 response_format。
+        model = SimpleNamespace(
+            ainvoke=AsyncMock(
+                return_value=AIMessage(
+                    content=f"```json\n{output.model_dump_json()}\n```",
+                )
+            )
+        )
         with patch(
             "services.account.memory_consolidation._get_consolidation_model",
             return_value=model,
@@ -119,6 +130,9 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
             model.ainvoke.await_args.kwargs["extra_headers"],
             {"x-user-id": str(self.user_id)},
         )
+        request_messages = model.ainvoke.await_args.args[0]
+        self.assertIsInstance(request_messages[0], SystemMessage)
+        self.assertIn("JSON schema", request_messages[0].content)
 
         with Session(self.engine) as session:
             episode = session.exec(select(ConversationMemory)).one()
@@ -211,6 +225,61 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.skipped)
         model.ainvoke.assert_not_awaited()
+
+    async def test_plain_completion_request_has_no_response_format(self) -> None:
+        captured_request: dict[str, object] = {}
+        output = ConsolidationOutput(
+            title="本地协议测试",
+            summary="验证普通 JSON 响应可以被解析。",
+        )
+
+        async def handle_request(request: httpx.Request) -> httpx.Response:
+            captured_request.update(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-memory-test",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "test-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": output.model_dump_json(),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                },
+            )
+
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
+        model = ChatOpenAI(
+            model="test-model",
+            api_key="test-key",
+            base_url="https://memory.test/v1",
+            temperature=0,
+            http_async_client=async_client,
+        )
+        try:
+            with patch(
+                "services.account.memory_consolidation._get_consolidation_model",
+                return_value=model,
+            ):
+                result = await consolidate_conversation(self.conversation_id)
+        finally:
+            await async_client.aclose()
+
+        self.assertFalse(result.skipped)
+        self.assertNotIn("response_format", captured_request)
+        self.assertEqual(captured_request["model"], "test-model")
 
 
 if __name__ == "__main__":

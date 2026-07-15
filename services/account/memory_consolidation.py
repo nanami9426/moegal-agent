@@ -8,7 +8,8 @@ from datetime import timedelta
 from functools import lru_cache
 from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -126,16 +127,17 @@ async def consolidate_conversation(
     )
     raw_output = await _get_consolidation_model().ainvoke(
         [
-            SystemMessage(content=CONSOLIDATION_SYSTEM_PROMPT),
+            SystemMessage(
+                content=(
+                    f"{CONSOLIDATION_SYSTEM_PROMPT}\n"
+                    f"{_get_consolidation_parser().get_format_instructions()}"
+                )
+            ),
             HumanMessage(content=prompt),
         ],
         extra_headers=llm_user_headers(conversation.user_id),
     )
-    output = (
-        raw_output
-        if isinstance(raw_output, ConsolidationOutput)
-        else ConsolidationOutput.model_validate(raw_output)
-    )
+    output = _parse_consolidation_output(raw_output)
     last_message_id = max(message.id or 0 for message in batch.messages) or None
     namespace = f"platform:{conversation.platform.lower()}"
     # 结构化输出仍是不可信数据；落库前再用确定性规则过滤摘要和列表字段。
@@ -281,14 +283,42 @@ def _get_consolidation_model():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY. 请先在 .env 中配置。")
-    model = ChatOpenAI(
+    # 不使用 with_structured_output：部分 OpenAI 兼容模型不支持 response_format。
+    return ChatOpenAI(
         model=os.getenv("MOEGAL_MODEL"),
         api_key=api_key,
         base_url=get_base_url(),
         temperature=0,
         stream_usage=True,
     )
-    return model.with_structured_output(ConsolidationOutput)
+
+
+@lru_cache
+def _get_consolidation_parser() -> PydanticOutputParser[ConsolidationOutput]:
+    return PydanticOutputParser(pydantic_object=ConsolidationOutput)
+
+
+def _parse_consolidation_output(raw_output: object) -> ConsolidationOutput:
+    """兼容测试对象、字典和普通 ChatCompletion 文本，并在本地严格校验。"""
+    if isinstance(raw_output, ConsolidationOutput):
+        return raw_output
+    if isinstance(raw_output, dict):
+        return ConsolidationOutput.model_validate(raw_output)
+
+    content = raw_output.content if isinstance(raw_output, BaseMessage) else raw_output
+    if isinstance(content, str):
+        text_content = content
+    elif isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                text_parts.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                text_parts.append(item["text"])
+        text_content = "\n".join(text_parts)
+    else:
+        text_content = str(content)
+    return _get_consolidation_parser().parse(text_content)
 
 
 def _get_message_threshold() -> int:

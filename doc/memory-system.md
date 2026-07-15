@@ -117,7 +117,7 @@ flowchart LR
 5. 如果普通任务运行期间收到强制请求，当前任务完成后再执行一次收尾；
 6. 只有成功写入情景摘要后才推进 `source_message_id`，失败时后续触发仍可重试。
 
-巩固模型使用 Pydantic 结构化输出，返回：
+巩固模型使用普通 Chat Completions 请求，格式指令要求模型返回 JSON，响应再由 Pydantic 在本地严格校验。这里不使用 API 的 `response_format`，以兼容 DeepSeek 等未完整实现该参数的 OpenAI 兼容接口。输出结构为：
 
 ```text
 title + summary + topics + open_items + memories[]
@@ -204,7 +204,7 @@ checkpoint 仍可保存完整模型状态，裁剪只发生在本次模型调用
 记忆内容属于长期持久化数据，因此在模型约束之外还有确定性检查：
 
 1. 巩固提示词明确把消息 JSON 视为不可信数据，消息里的指令不能覆盖系统规则；
-2. 模型只能返回受 Pydantic schema 限制的结构化字段；
+2. 格式指令要求模型按 schema 返回 JSON，不符合 Pydantic schema 的响应不会落库；
 3. 候选事实落库前过滤密码、验证码、令牌、API key、私钥、证件号、银行卡号、手机号和邮箱；
 4. 标题、摘要、主题和未完成事项也会按句执行同样的过滤；
 5. 自动归纳的置信度上限低于用户明确写入；
@@ -309,4 +309,3 @@ uv run python -m scripts.evaluate_memory_retrieval
 - 检索基准样本量较小，需要随着真实使用持续扩充。
 
 当匿名评测确认语义漏召回成为主要问题时，可以在 `user_memories` 和 `conversation_memories` 增加 embedding，并用 pgvector 召回候选，再复用现有 relevance、importance、confidence、recency 排序层。这样不需要推翻当前数据模型和用户控制机制。
-
