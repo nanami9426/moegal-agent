@@ -38,12 +38,12 @@ class AgentToolsTest(unittest.TestCase):
     def test_weather_tool_is_registered(self) -> None:
         self.assertIn("get_weather", [tool.name for tool in TOOLS])
 
-    def test_memory_tools_are_registered(self) -> None:
+    def test_per_item_memory_tools_are_not_registered(self) -> None:
         tool_names = [tool.name for tool in TOOLS]
 
-        self.assertIn("remember_user_memory", tool_names)
-        self.assertIn("forget_user_memory", tool_names)
-        self.assertIn("list_user_memories", tool_names)
+        self.assertNotIn("remember_user_memory", tool_names)
+        self.assertNotIn("forget_user_memory", tool_names)
+        self.assertNotIn("list_user_memories", tool_names)
 
 
 class _FakeResponse:

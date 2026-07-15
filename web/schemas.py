@@ -137,33 +137,16 @@ class WebChatMessageResponse(BaseModel):
     reply: str
 
 
-class MemoryItem(BaseModel):
+class MemoryDocumentItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    namespace: str
-    kind: str
-    key: str
     content: str
-    source: str
-    confidence: float
-    importance: float
-    expires_at: datetime | None
-    last_accessed_at: datetime | None
-    access_count: int
     created_at: datetime
     updated_at: datetime
 
 
-class MemoriesResponse(BaseModel):
-    memories: list[MemoryItem]
-
-
-class MemoryUpdateRequest(BaseModel):
-    content: str | None = None
-    confidence: float | None = Field(default=None, ge=0, le=1)
-    importance: float | None = Field(default=None, ge=0, le=1)
-    expires_at: datetime | None = None
+class MemoryDocumentUpdateRequest(BaseModel):
+    content: str = Field(max_length=16_000)
 
 
 class MemorySettingsItem(BaseModel):
@@ -171,11 +154,9 @@ class MemorySettingsItem(BaseModel):
 
     enabled: bool
     auto_extract: bool
-    use_chat_history: bool
     updated_at: datetime
 
 
 class MemorySettingsUpdateRequest(BaseModel):
     enabled: bool | None = None
     auto_extract: bool | None = None
-    use_chat_history: bool | None = None

@@ -13,21 +13,19 @@ from agent.router import (
 from db.session import get_session
 from services.account.web_auth import AuthenticatedWebUser
 from services.account.memories import (
-    forget_all_memories,
-    forget_memory_by_id,
+    clear_memory_document,
+    get_memory_document,
     get_memory_settings,
-    list_memories,
-    update_memory_by_id,
+    update_memory_document,
     update_memory_settings,
 )
 from web.api.dependencies import require_web_user
 from web.schemas import (
     ChatHistoryResponse,
-    MemoriesResponse,
-    MemoryItem,
+    MemoryDocumentItem,
+    MemoryDocumentUpdateRequest,
     MemorySettingsItem,
     MemorySettingsUpdateRequest,
-    MemoryUpdateRequest,
     WebChatMessageRequest,
     WebChatMessageResponse,
 )
@@ -153,7 +151,7 @@ async def stream_web_chat_message(
     summary="开启新的 Web 聊天会话",
     description=(
         "Web 聊天接口。结束当前 Web 用户的活跃会话，并创建新的聊天上下文；"
-        "不会删除历史会话、订阅或摘要记录。"
+        "不会删除历史会话、订阅或长期记忆。"
     ),
 )
 def start_new_web_chat(
@@ -171,70 +169,45 @@ def start_new_web_chat(
 
 
 @router.get(
-    "/web-chat/memories",
-    response_model=MemoriesResponse,
-    summary="查看当前用户长期记忆",
+    "/web-chat/memory",
+    response_model=MemoryDocumentItem,
+    summary="查看当前用户 Markdown 长期记忆",
 )
-def get_web_chat_memories(
-    limit: int = Query(50, ge=1, le=50),
+def get_web_chat_memory(
     current_user: AuthenticatedWebUser = Depends(require_web_user),
-) -> MemoriesResponse:
-    return MemoriesResponse(
-        memories=[
-            MemoryItem.model_validate(memory)
-            for memory in list_memories(current_user.user_id, limit=limit)
-        ]
+) -> MemoryDocumentItem:
+    return MemoryDocumentItem.model_validate(
+        get_memory_document(current_user.user_id)
     )
 
 
 @router.patch(
-    "/web-chat/memories/{memory_id}",
-    response_model=MemoryItem,
-    summary="纠正一条长期记忆",
+    "/web-chat/memory",
+    response_model=MemoryDocumentItem,
+    summary="替换当前用户 Markdown 长期记忆",
 )
-def patch_web_chat_memory(
-    memory_id: int,
-    payload: MemoryUpdateRequest,
+def patch_web_chat_memory_document(
+    payload: MemoryDocumentUpdateRequest,
     current_user: AuthenticatedWebUser = Depends(require_web_user),
-) -> MemoryItem:
+) -> MemoryDocumentItem:
     try:
-        memory = update_memory_by_id(
-            current_user.user_id,
-            memory_id,
-            content=payload.content,
-            confidence=payload.confidence,
-            importance=payload.importance,
-            expires_at=payload.expires_at,
-            update_expires_at="expires_at" in payload.model_fields_set,
-        )
+        document = update_memory_document(current_user.user_id, payload.content)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if memory is None:
-        raise HTTPException(status_code=404, detail="Memory not found.")
-    return MemoryItem.model_validate(memory)
+    return MemoryDocumentItem.model_validate(document)
 
 
 @router.delete(
-    "/web-chat/memories/{memory_id}",
-    summary="删除一条长期记忆",
+    "/web-chat/memory",
+    response_model=MemoryDocumentItem,
+    summary="清空当前用户 Markdown 长期记忆",
 )
-def delete_web_chat_memory(
-    memory_id: int,
+def clear_web_chat_memory(
     current_user: AuthenticatedWebUser = Depends(require_web_user),
-) -> dict[str, bool]:
-    if not forget_memory_by_id(current_user.user_id, memory_id):
-        raise HTTPException(status_code=404, detail="Memory not found.")
-    return {"deleted": True}
-
-
-@router.delete(
-    "/web-chat/memories",
-    summary="清空当前用户长期记忆",
-)
-def clear_web_chat_memories(
-    current_user: AuthenticatedWebUser = Depends(require_web_user),
-) -> dict[str, int]:
-    return {"deleted_count": forget_all_memories(current_user.user_id)}
+) -> MemoryDocumentItem:
+    return MemoryDocumentItem.model_validate(
+        clear_memory_document(current_user.user_id)
+    )
 
 
 @router.get(
@@ -261,6 +234,5 @@ def patch_web_chat_memory_settings(
         current_user.user_id,
         enabled=payload.enabled,
         auto_extract=payload.auto_extract,
-        use_chat_history=payload.use_chat_history,
     )
     return MemorySettingsItem.model_validate(settings)

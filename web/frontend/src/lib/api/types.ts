@@ -97,18 +97,8 @@ export interface AuthResponse {
   user: WebUser;
 }
 
-export interface MemoryItem {
-  id: number;
-  namespace: string;
-  kind: string;
-  key: string;
+export interface MemoryDocument {
   content: string;
-  source: string;
-  confidence: number;
-  importance: number;
-  expires_at: string | null;
-  last_accessed_at: string | null;
-  access_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -116,7 +106,6 @@ export interface MemoryItem {
 export interface MemorySettings {
   enabled: boolean;
   auto_extract: boolean;
-  use_chat_history: boolean;
   updated_at: string;
 }
 

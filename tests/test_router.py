@@ -92,7 +92,7 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
         ):
             router.start_new_conversation_context("tg", "42")
 
-        self.schedule_mock.assert_called_once_with(1, user_id=1001, force=True)
+        self.schedule_mock.assert_called_once_with(1, force=True)
 
     async def test_conversation_thread_ids_are_scoped_per_user(self) -> None:
         graph = SimpleNamespace(
@@ -316,12 +316,12 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 router,
                 "get_memory_settings",
-                return_value=SimpleNamespace(enabled=True, use_chat_history=True),
+                return_value=SimpleNamespace(enabled=True),
             ),
             patch.object(
                 router,
                 "build_memory_context",
-                return_value="- kind=preference; key=studio; content=用户喜欢芳文社。",
+                return_value="# 用户记忆\n\n- 喜欢芳文社动画",
             ) as build_memory_context,
             patch.object(router, "_get_image_model", return_value=model),
         ):
@@ -333,17 +333,12 @@ class RouterContextTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, "图片回答")
-        build_memory_context.assert_called_once_with(
-            1_000_000_001,
-            query="这是什么？",
-            namespaces=["global", "platform:tg"],
-            include_chat_history=True,
-        )
+        build_memory_context.assert_called_once_with(1_000_000_001)
         model.ainvoke.assert_awaited_once()
         messages = model.ainvoke.await_args.args[0]
         self.assertIsInstance(messages[0], SystemMessage)
         self.assertIsInstance(messages[1], SystemMessage)
-        self.assertIn("用户喜欢芳文社", messages[1].content)
+        self.assertIn("喜欢芳文社", messages[1].content)
         self.assertIsInstance(messages[2], HumanMessage)
         self.assertEqual(messages[2].content[0], {"type": "text", "text": "这是什么？"})
         self.assertEqual(

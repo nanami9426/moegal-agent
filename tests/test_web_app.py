@@ -10,7 +10,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
-from db.models import Conversation, LLMTokenUsage, Message, Subscription, User, UserMemory
+from db.models import (
+    Conversation,
+    LLMTokenUsage,
+    Message,
+    Subscription,
+    User,
+    UserMemoryDocument,
+)
 from services.account.bindings import complete_platform_link
 from web.app import create_app
 
@@ -30,9 +37,6 @@ class WebApiTest(unittest.TestCase):
         self.stack.enter_context(patch("services.account.bindings.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.web_auth.get_engine", return_value=self.engine))
         self.stack.enter_context(patch("services.account.memories.get_engine", return_value=self.engine))
-        self.stack.enter_context(
-            patch("services.account.conversation_memories.get_engine", return_value=self.engine)
-        )
         self.client = TestClient(create_app(init_database=False))
 
     def tearDown(self) -> None:
@@ -561,33 +565,27 @@ class WebApiTest(unittest.TestCase):
     def test_web_memory_management_and_settings(self) -> None:
         token, user_id = self._register_web_user()
         with Session(self.engine) as session:
-            memory = UserMemory(
+            memory = UserMemoryDocument(
                 user_id=user_id,
-                namespace="global",
-                kind="preference",
-                key="preference.anime.genre",
-                content="用户喜欢日常系动画。",
+                content="# 用户记忆\n\n- 喜欢日常系动画",
             )
             session.add(memory)
             session.commit()
-            session.refresh(memory)
-            memory_id = memory.id
 
         listed = self.client.get(
-            "/api/web-chat/memories",
+            "/api/web-chat/memory",
             headers=self._auth_headers(token),
         )
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual(listed.json()["memories"][0]["id"], memory_id)
+        self.assertIn("喜欢日常系动画", listed.json()["content"])
 
         updated = self.client.patch(
-            f"/api/web-chat/memories/{memory_id}",
-            json={"content": "用户现在更喜欢治愈系动画。", "importance": 0.9},
+            "/api/web-chat/memory",
+            json={"content": "# 用户记忆\n\n- 现在更喜欢治愈系动画"},
             headers=self._auth_headers(token),
         )
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["content"], "用户现在更喜欢治愈系动画。")
-        self.assertEqual(updated.json()["importance"], 0.9)
+        self.assertIn("更喜欢治愈系动画", updated.json()["content"])
 
         settings = self.client.get(
             "/api/web-chat/memory-settings",
@@ -604,31 +602,17 @@ class WebApiTest(unittest.TestCase):
         self.assertEqual(paused.status_code, 200)
         self.assertFalse(paused.json()["enabled"])
         self.assertFalse(paused.json()["auto_extract"])
+        self.assertNotIn("use_chat_history", paused.json())
 
-        deleted = self.client.delete(
-            f"/api/web-chat/memories/{memory_id}",
-            headers=self._auth_headers(token),
-        )
-        self.assertEqual(deleted.status_code, 200)
-        self.assertEqual(deleted.json(), {"deleted": True})
-
-        with Session(self.engine) as session:
-            session.add(
-                UserMemory(
-                    user_id=user_id,
-                    namespace="global",
-                    kind="note",
-                    key="another.memory",
-                    content="另一条记忆。",
-                )
-            )
-            session.commit()
         cleared = self.client.delete(
-            "/api/web-chat/memories",
+            "/api/web-chat/memory",
             headers=self._auth_headers(token),
         )
         self.assertEqual(cleared.status_code, 200)
-        self.assertEqual(cleared.json(), {"deleted_count": 1})
+        self.assertEqual(cleared.json()["content"], "")
+        with Session(self.engine) as session:
+            documents = session.exec(select(UserMemoryDocument)).all()
+        self.assertEqual(len(documents), 1)
 
     def test_web_temporary_chat_passes_non_persistent_options(self) -> None:
         token, user_id = self._register_web_user()

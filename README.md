@@ -135,10 +135,8 @@ Web 端聊天机器人使用独立的简单账号体系：
 - `POST /api/web-chat/messages/stream`：发送 Web 聊天消息，并通过 SSE 流式返回助手回复。
 - `GET /api/web-chat/history`：读取当前 Web 用户的聊天记录。
 - `POST /api/web-chat/new`：开启新的 Web 聊天上下文。
-- `GET /api/web-chat/memories`：查看当前 Web 用户的有效长期记忆。
-- `PATCH/DELETE /api/web-chat/memories/{id}`：纠正或删除一条长期记忆。
-- `DELETE /api/web-chat/memories`：清空全部长期记忆，但保留聊天历史。
-- `GET/PATCH /api/web-chat/memory-settings`：读取或修改记忆、自动整理和历史引用开关。
+- `GET/PATCH/DELETE /api/web-chat/memory`：读取、替换或清空当前用户的整份 Markdown 长期记忆。
+- `GET/PATCH /api/web-chat/memory-settings`：读取或修改记忆启用和后台自动整理开关。
 
 Web 消息请求可以传入 `temporary=true` 和客户端生成的 `temporary_thread_id` 开启临时聊天。临时聊天只在进程内保持当前会话连续性，不读取长期记忆，也不会写入 `conversations`、`messages` 或 PostgreSQL checkpoint。
 
@@ -235,19 +233,13 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 普通文本对话上下文通过 LangGraph PostgreSQL checkpoint 保存到 `DATABASE_URL` 指向的数据库中，进程重启后会继续使用当前活跃会话的上下文。
 `conversations` 表保存每个平台用户的会话版本和当前活跃会话；`thread_id` 使用随机 UUID，并作为 LangGraph checkpoint 的会话隔离键。
 `messages` 表保存用户输入和最终助手回复，方便后续查询聊天记录。
-执行 `/newchat` 会在当前活跃会话已有消息时结束旧版本并创建新版本；如果当前已经是空新对话，则只提示已在新对话中，不会额外创建空记录。
+执行 `/newchat` 会在当前活跃会话已有消息时结束当前版本并创建下一版本；如果当前已经是空新对话，则只提示已在新对话中，不会额外创建空记录。
 
 模型热路径会按 `MOEGAL_CONTEXT_MAX_TOKENS`（默认 `12000`）裁剪较早消息，数据库 checkpoint 仍保留完整会话。
-长期记忆根据本轮消息，从有效记忆中使用 namespace、数据库关键词/全文候选和应用层相关性混合召回，综合重要度、置信度和新鲜度排序，默认召回最多 6 条，并限制为约 1600 字符的 JSON 上下文。
-`user_memories` 保存语义记忆的来源、置信度、重要度、过期时间和访问统计；`memory_revisions` 保存创建、更新、恢复及遗忘轨迹。
-每累计 `MOEGAL_MEMORY_CONSOLIDATION_MESSAGES` 条新消息会后台生成滚动摘要，并在 `/newchat` 时强制收尾。`conversation_memories` 保存平台隔离的情景摘要、主题和未完成事项；巩固器会把稳定用户事实写回全局语义记忆，并再次过滤敏感信息。
-`user_memory_settings` 保存用户的记忆启用、自动整理和历史引用开关。Web 聊天页提供记忆查看、纠正、删除、清空和临时聊天入口。
-
-可以运行轻量检索评测：
-
-```bash
-uv run python -m scripts.evaluate_memory_retrieval
-```
+`user_memory_documents` 为每个用户保存一份最多 16000 字符的 Markdown 长期记忆，启用时整份注入聊天上下文。
+每累计 `MOEGAL_MEMORY_CONSOLIDATION_MESSAGES` 条新消息，后台模型会根据当前 Markdown 和新增消息生成去重后的完整更新文档；`/newchat` 会强制收尾。
+`memory_consolidation_cursors` 记录每个会话处理到的消息位置；保存时会检查用户是否同时编辑了文档，避免后台结果覆盖用户修改。
+`user_memory_document_settings` 保存记忆启用和自动整理开关。Web 聊天页提供整份 Markdown 编辑、保存和清空入口。
 
 ## QQ C2C
 

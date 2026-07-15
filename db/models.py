@@ -140,72 +140,27 @@ class Subscription(SQLModel, table=True):
     last_checked_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
 
 
-class UserMemory(SQLModel, table=True):
-    __tablename__ = "user_memories"
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "namespace",
-            "kind",
-            "key",
-            name="uq_user_memories_user_namespace_kind_key",
-        ),
-        Index(
-            "ix_user_memories_user_active_updated",
-            "user_id",
-            "is_active",
-            "updated_at",
-        ),
-    )
+class UserMemoryDocument(SQLModel, table=True):
+    """每个用户唯一的一份 Markdown 长期记忆。"""
 
-    id: int | None = Field(default=None, primary_key=True)
+    __tablename__ = "user_memory_documents"
+
     user_id: int = Field(
-        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
+        sa_column=Column(BigInteger, ForeignKey("users.id"), primary_key=True),
     )
-    # namespace 用于隔离全局、平台、项目和会话记忆，避免不同上下文互相污染。
-    namespace: str = Field(default="global", index=True, max_length=255, nullable=False)
-    kind: str = Field(default="note", index=True, max_length=32)
-    key: str = Field(max_length=128)
-    content: str = Field(nullable=False)
-    # 记忆来源和质量信息用于召回排序，也方便区分用户明确要求与模型推断。
-    source: str = Field(default="explicit", index=True, max_length=32, nullable=False)
-    confidence: float = Field(default=1.0, nullable=False)
-    importance: float = Field(default=0.5, nullable=False)
-    source_message_id: int | None = Field(default=None, foreign_key="messages.id", index=True)
-    is_active: bool = Field(default=True, index=True, nullable=False)
-    expires_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ, index=True)
-    last_accessed_at: datetime | None = Field(default=None, sa_type=TIMESTAMP_TZ)
-    access_count: int = Field(default=0, nullable=False)
-    metadata_json: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSON, nullable=False),
-    )
+    content: str = Field(default="", nullable=False)
     created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
-class MemoryRevision(SQLModel, table=True):
-    __tablename__ = "memory_revisions"
-
-    id: int | None = Field(default=None, primary_key=True)
-    memory_id: int = Field(foreign_key="user_memories.id", index=True)
-    action: str = Field(max_length=32, index=True)
-    previous_content: str | None = Field(default=None)
-    content: str | None = Field(default=None)
-    source: str = Field(default="explicit", max_length=32, nullable=False)
-    reason: str | None = Field(default=None, max_length=512)
-    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
-
-
 class UserMemorySettings(SQLModel, table=True):
-    __tablename__ = "user_memory_settings"
+    __tablename__ = "user_memory_document_settings"
 
     user_id: int = Field(
         sa_column=Column(BigInteger, ForeignKey("users.id"), primary_key=True),
     )
     enabled: bool = Field(default=True, nullable=False)
     auto_extract: bool = Field(default=True, nullable=False)
-    use_chat_history: bool = Field(default=True, nullable=False)
     created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
@@ -356,26 +311,12 @@ class Message(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
-class ConversationMemory(SQLModel, table=True):
-    """从一次会话中归纳出的情景记忆和滚动摘要。"""
+class MemoryConsolidationCursor(SQLModel, table=True):
+    """记录每个会话已合并到用户 Markdown 记忆的最后一条消息。"""
 
-    __tablename__ = "conversation_memories"
-    __table_args__ = (
-        UniqueConstraint("conversation_id", name="uq_conversation_memories_conversation"),
-        Index("ix_conversation_memories_user_updated", "user_id", "updated_at"),
-    )
+    __tablename__ = "memory_consolidation_cursors"
 
-    id: int | None = Field(default=None, primary_key=True)
-    conversation_id: int = Field(foreign_key="conversations.id", index=True)
-    user_id: int = Field(
-        sa_column=Column(BigInteger, ForeignKey("users.id"), index=True, nullable=False),
-    )
-    namespace: str = Field(index=True, max_length=255)
-    title: str = Field(max_length=255)
-    summary: str = Field(nullable=False)
-    topics: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
-    open_items: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    conversation_id: int = Field(foreign_key="conversations.id", primary_key=True)
     source_message_id: int | None = Field(default=None, foreign_key="messages.id", index=True)
-    is_active: bool = Field(default=True, index=True, nullable=False)
     created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)

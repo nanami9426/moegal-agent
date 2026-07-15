@@ -5,16 +5,22 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, select
 
-from db.models import Conversation, ConversationMemory, MemoryRevision, Message, User, UserMemory
+from db.models import (
+    Conversation,
+    MemoryConsolidationCursor,
+    Message,
+    User,
+    UserMemoryDocument,
+)
+from services.account.memories import update_memory_document
 from services.account.memory_consolidation import (
-    ConsolidatedMemoryCandidate,
-    ConsolidationOutput,
+    MemoryDocumentChangedError,
     consolidate_conversation,
 )
 
@@ -65,7 +71,6 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
         self.stack = ExitStack()
         for target in (
             "services.account.memories.get_engine",
-            "services.account.conversation_memories.get_engine",
             "services.account.memory_consolidation.get_engine",
         ):
             self.stack.enter_context(patch(target, return_value=self.engine))
@@ -79,43 +84,15 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         self.stack.close()
 
-    async def test_consolidation_writes_episode_and_stable_memories(self) -> None:
-        output = ConsolidationOutput(
-            title="动画偏好",
-            summary=(
-                "用户多次确认喜欢日常系动画，后续可以继续推荐。"
-                "用户声称 password is hunter2。"
-            ),
-            topics=["日常系动画", "邮箱 user@example.com"],
-            open_items=["下次继续推荐", "记住手机号 13800138000"],
-            memories=[
-                ConsolidatedMemoryCandidate(
-                    action="upsert",
-                    kind="preference",
-                    key="preference.anime.genre",
-                    content="用户喜欢日常系动画。",
-                    confidence=0.95,
-                    importance=0.8,
-                    reason="用户重复明确表达",
-                ),
-                ConsolidatedMemoryCandidate(
-                    action="upsert",
-                    kind="note",
-                    key="profile.api_token",
-                    content="用户的 token 是 sk-secret-secret-secret。",
-                    confidence=1,
-                    importance=1,
-                ),
-            ],
-        )
-        # OpenAI 兼容接口只需返回普通文本，不依赖 response_format。
-        model = SimpleNamespace(
-            ainvoke=AsyncMock(
-                return_value=AIMessage(
-                    content=f"```json\n{output.model_dump_json()}\n```",
-                )
-            )
-        )
+    async def test_consolidation_replaces_markdown_and_advances_cursor(self) -> None:
+        first_markdown = """```markdown
+# 用户记忆
+
+## 稳定偏好
+- 喜欢日常系动画
+- 邮箱 user@example.com
+```"""
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content=first_markdown)))
         with patch(
             "services.account.memory_consolidation._get_consolidation_model",
             return_value=model,
@@ -123,34 +100,22 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
             result = await consolidate_conversation(self.conversation_id)
 
         self.assertFalse(result.skipped)
+        self.assertTrue(result.document_updated)
         self.assertEqual(result.processed_messages, 12)
-        self.assertEqual(result.upserted_memories, 1)
-        model.ainvoke.assert_awaited_once()
         self.assertEqual(
             model.ainvoke.await_args.kwargs["extra_headers"],
             {"x-user-id": str(self.user_id)},
         )
-        request_messages = model.ainvoke.await_args.args[0]
-        self.assertIsInstance(request_messages[0], SystemMessage)
-        self.assertIn("JSON schema", request_messages[0].content)
+        request_payload = json.loads(model.ainvoke.await_args.args[0][1].content)
+        self.assertEqual(request_payload["old_memory_markdown"], "")
+        self.assertEqual(len(request_payload["new_messages"]), 12)
 
         with Session(self.engine) as session:
-            episode = session.exec(select(ConversationMemory)).one()
-            memories = session.exec(select(UserMemory)).all()
-            revisions = session.exec(select(MemoryRevision)).all()
-
-        self.assertEqual(episode.namespace, "platform:tg")
-        self.assertEqual(episode.title, "动画偏好")
-        self.assertEqual(episode.open_items, ["下次继续推荐"])
-        self.assertEqual(episode.topics, ["日常系动画"])
-        self.assertNotIn("hunter2", episode.summary)
-        self.assertIn("日常系动画", episode.summary)
-        self.assertIsNotNone(episode.source_message_id)
-        self.assertEqual(len(memories), 1)
-        self.assertEqual(memories[0].key, "preference.anime.genre")
-        self.assertEqual(memories[0].source, "summary")
-        self.assertEqual(memories[0].confidence, 0.9)
-        self.assertEqual(revisions[0].action, "create")
+            document = session.get(UserMemoryDocument, self.user_id)
+            cursor = session.get(MemoryConsolidationCursor, self.conversation_id)
+        self.assertIn("喜欢日常系动画", document.content)
+        self.assertNotIn("user@example.com", document.content)
+        self.assertIsNotNone(cursor.source_message_id)
 
         with Session(self.engine) as session:
             session.add(
@@ -164,50 +129,31 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
                 Message(
                     conversation_id=self.conversation_id,
                     role="assistant",
-                    content="已更正。",
+                    content="明白。",
                 )
             )
             session.commit()
 
-        corrected_output = ConsolidationOutput(
-            title="动画偏好更新",
-            summary="用户把偏好更正为治愈系动画。",
-            topics=["治愈系动画"],
-            memories=[
-                ConsolidatedMemoryCandidate(
-                    action="upsert",
-                    kind="preference",
-                    key="preference.anime.genre",
-                    content="用户现在更喜欢治愈系动画。",
-                    confidence=0.9,
-                    importance=0.8,
-                    reason="用户明确更正",
-                )
-            ],
-        )
+        second_markdown = "# 用户记忆\n\n## 稳定偏好\n- 喜欢治愈系动画"
         corrected_model = SimpleNamespace(
-            ainvoke=AsyncMock(return_value=corrected_output)
+            ainvoke=AsyncMock(return_value=AIMessage(content=second_markdown))
         )
         with patch(
             "services.account.memory_consolidation._get_consolidation_model",
             return_value=corrected_model,
         ):
-            corrected = await consolidate_conversation(
-                self.conversation_id,
-                force=True,
-            )
+            corrected = await consolidate_conversation(self.conversation_id, force=True)
 
         self.assertEqual(corrected.processed_messages, 2)
+        second_payload = json.loads(corrected_model.ainvoke.await_args.args[0][1].content)
+        self.assertIn("喜欢日常系动画", second_payload["old_memory_markdown"])
         with Session(self.engine) as session:
-            memories = session.exec(select(UserMemory)).all()
-            revisions = session.exec(select(MemoryRevision).order_by(MemoryRevision.id)).all()
-            episode = session.exec(select(ConversationMemory)).one()
-        self.assertEqual(len(memories), 1)
-        self.assertEqual(memories[0].content, "用户现在更喜欢治愈系动画。")
-        self.assertEqual([revision.action for revision in revisions], ["create", "update"])
-        self.assertEqual(episode.title, "动画偏好更新")
+            documents = session.exec(select(UserMemoryDocument)).all()
+        self.assertEqual(len(documents), 1)
+        self.assertIn("喜欢治愈系动画", documents[0].content)
+        self.assertNotIn("喜欢日常系动画", documents[0].content)
 
-    async def test_consolidation_skips_when_threshold_not_reached(self) -> None:
+    async def test_consolidation_skips_below_threshold(self) -> None:
         with Session(self.engine) as session:
             messages = session.exec(
                 select(Message).where(Message.conversation_id == self.conversation_id)
@@ -226,12 +172,38 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.skipped)
         model.ainvoke.assert_not_awaited()
 
+    async def test_user_edit_during_model_call_is_not_overwritten(self) -> None:
+        with Session(self.engine) as session:
+            session.add(
+                UserMemoryDocument(
+                    user_id=self.user_id,
+                    content="# 用户记忆\n\n- 原始内容",
+                )
+            )
+            session.commit()
+
+        async def edit_then_reply(*args: object, **kwargs: object) -> AIMessage:
+            update_memory_document(self.user_id, "# 用户记忆\n\n- 用户手动编辑")
+            return AIMessage(content="# 用户记忆\n\n- 后台旧结果")
+
+        model = SimpleNamespace(ainvoke=AsyncMock(side_effect=edit_then_reply))
+        with (
+            patch(
+                "services.account.memory_consolidation._get_consolidation_model",
+                return_value=model,
+            ),
+            self.assertRaises(MemoryDocumentChangedError),
+        ):
+            await consolidate_conversation(self.conversation_id)
+
+        with Session(self.engine) as session:
+            document = session.get(UserMemoryDocument, self.user_id)
+            cursor = session.get(MemoryConsolidationCursor, self.conversation_id)
+        self.assertIn("用户手动编辑", document.content)
+        self.assertIsNotNone(cursor.source_message_id)
+
     async def test_plain_completion_request_has_no_response_format(self) -> None:
         captured_request: dict[str, object] = {}
-        output = ConsolidationOutput(
-            title="本地协议测试",
-            summary="验证普通 JSON 响应可以被解析。",
-        )
 
         async def handle_request(request: httpx.Request) -> httpx.Response:
             captured_request.update(json.loads(request.content))
@@ -247,7 +219,7 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
                             "index": 0,
                             "message": {
                                 "role": "assistant",
-                                "content": output.model_dump_json(),
+                                "content": "# 用户记忆\n\n- 本地协议测试",
                             },
                             "finish_reason": "stop",
                         }

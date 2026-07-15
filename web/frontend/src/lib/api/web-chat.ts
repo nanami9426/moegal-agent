@@ -8,7 +8,7 @@ import {
 } from "./http";
 import type {
   ConversationHistory,
-  MemoryItem,
+  MemoryDocument,
   MemorySettings,
 } from "./types";
 
@@ -97,12 +97,8 @@ export async function startNewWebChat(token: string): Promise<{ created: boolean
   return postJson<{ created: boolean; message: string }>("/api/web-chat/new", undefined, token);
 }
 
-export async function fetchWebMemories(token: string): Promise<MemoryItem[]> {
-  const payload = await getJson<{ memories: MemoryItem[] }>(
-    "/api/web-chat/memories?limit=50",
-    token,
-  );
-  return payload.memories;
+export function fetchMemoryDocument(token: string): Promise<MemoryDocument> {
+  return getJson<MemoryDocument>("/api/web-chat/memory", token);
 }
 
 export function fetchMemorySettings(token: string): Promise<MemorySettings> {
@@ -111,23 +107,18 @@ export function fetchMemorySettings(token: string): Promise<MemorySettings> {
 
 export function updateMemorySettings(
   token: string,
-  updates: Partial<Pick<MemorySettings, "enabled" | "auto_extract" | "use_chat_history">>,
+  updates: Partial<Pick<MemorySettings, "enabled" | "auto_extract">>,
 ): Promise<MemorySettings> {
   return patchJson<MemorySettings>("/api/web-chat/memory-settings", updates, token);
 }
 
-export function updateWebMemory(
+export function updateMemoryDocument(
   token: string,
-  memoryId: number,
-  updates: Pick<MemoryItem, "content">,
-): Promise<MemoryItem> {
-  return patchJson<MemoryItem>(`/api/web-chat/memories/${memoryId}`, updates, token);
+  content: string,
+): Promise<MemoryDocument> {
+  return patchJson<MemoryDocument>("/api/web-chat/memory", { content }, token);
 }
 
-export function deleteWebMemory(token: string, memoryId: number): Promise<{ deleted: boolean }> {
-  return deleteJson<{ deleted: boolean }>(`/api/web-chat/memories/${memoryId}`, token);
-}
-
-export function clearWebMemories(token: string): Promise<{ deleted_count: number }> {
-  return deleteJson<{ deleted_count: number }>("/api/web-chat/memories", token);
+export function clearMemoryDocument(token: string): Promise<MemoryDocument> {
+  return deleteJson<MemoryDocument>("/api/web-chat/memory", token);
 }
