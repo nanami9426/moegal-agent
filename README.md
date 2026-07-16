@@ -52,6 +52,7 @@ QQ_BOT_SK=
 - `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
 - `MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM`：每个 Web 用户同平台最多可绑定的 Bot 账号数，默认 `2`。
 - `MOEGAL_CONTEXT_MAX_TOKENS`：模型热路径保留的最近会话 token 预算，默认 `12000`。
+- `MOEGAL_TIMEZONE`：日期时间工具使用的 IANA 时区，默认 `Asia/Shanghai`。
 - `MOEGAL_MEMORY_CONSOLIDATION_MESSAGES`：触发后台记忆巩固的新消息数，默认 `12`，范围 4 到 100。
 - `MOEGAL_PUBLIC_ASSET_BASE_URL`：QQ 图片回图必需。翻译后图片的公开静态资源地址，例如 `https://static.example.com/moegal-qq`。
 - `MOEGAL_QQ_IMAGE_REMOTE_HOST`：QQ 图片回图必需。SFTP 上传目标主机。

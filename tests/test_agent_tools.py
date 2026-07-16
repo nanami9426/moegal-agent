@@ -1,7 +1,8 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
-from agent.tools import TOOLS, get_weather
+from agent.tools import TOOLS, get_current_datetime, get_weather
 
 
 WEATHER_PARAMS = {
@@ -11,6 +12,26 @@ WEATHER_PARAMS = {
 
 
 class AgentToolsTest(unittest.TestCase):
+    def test_get_current_datetime_uses_configured_timezone(self) -> None:
+        class FixedDatetime:
+            @classmethod
+            def now(cls, tz: object) -> datetime:
+                return datetime(2026, 7, 16, 7, 8, 9, tzinfo=timezone.utc).astimezone(tz)
+
+        with (
+            patch("agent.tools.datetime", FixedDatetime),
+            patch.dict("os.environ", {"MOEGAL_TIMEZONE": "Asia/Shanghai"}),
+        ):
+            result = get_current_datetime.invoke({})
+
+        self.assertEqual(
+            result,
+            "当前日期和时间：2026-07-16 15:08:09（时区：Asia/Shanghai，UTC+08:00）",
+        )
+
+    def test_current_datetime_tool_is_registered(self) -> None:
+        self.assertIn("get_current_datetime", [tool.name for tool in TOOLS])
+
     def test_get_weather_fetches_wttr_weather(self) -> None:
         def fake_get(url: str, **kwargs: object) -> _FakeResponse:
             self.assertEqual(url, "https://wttr.in/Shenzhen")

@@ -1,5 +1,8 @@
+import os
+from datetime import datetime
 from typing import Annotated
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from langchain_core.tools import tool
@@ -11,6 +14,27 @@ from services.account.subscriptions import (
 )
 from services.account.subscriptions import list_subscriptions as list_subscription_records
 from services.rss_pipeline.digest import build_daily_digest as build_daily_digest_text
+
+
+@tool
+def get_current_datetime() -> str:
+    """Get the current date, time, and timezone. Use this for time-related questions."""
+    timezone_name = os.getenv("MOEGAL_TIMEZONE", "Asia/Shanghai").strip()
+    timezone_name = timezone_name or "Asia/Shanghai"
+    try:
+        local_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        # 时区配置错误时使用默认值，避免工具调用直接失败。
+        timezone_name = "Asia/Shanghai"
+        local_timezone = ZoneInfo("Asia/Shanghai")
+
+    current_time = datetime.now(local_timezone)
+    utc_offset = current_time.strftime("%z")
+    formatted_offset = f"{utc_offset[:3]}:{utc_offset[3:]}"
+    return (
+        f"当前日期和时间：{current_time:%Y-%m-%d %H:%M:%S}"
+        f"（时区：{timezone_name}，UTC{formatted_offset}）"
+    )
 
 
 @tool
@@ -105,6 +129,7 @@ def get_weather(location: str = "Shenzhen") -> str:
 
 
 TOOLS = [
+    get_current_datetime,
     create_subscription,
     delete_subscription,
     list_subscriptions,
