@@ -71,6 +71,8 @@ flowchart LR
 
 实现位于 [`services/account/memory_consolidation.py`](../services/account/memory_consolidation.py)。
 
+触发链路保持为三步：router 在回复落库后调用 `schedule_memory_consolidation`，调度器创建后台任务，任务直接执行 `consolidate_conversation`。用户设置、消息阈值、模型调用和保存结果都集中在 `consolidate_conversation` 中。
+
 ### 4.1 触发条件
 
 - 普通消息和助手最终回复落库后，router 尝试调度后台任务；

@@ -18,7 +18,7 @@ from db.models import (
     User,
     UserMemoryDocument,
 )
-from services.account.memories import update_memory_document
+from services.account.memories import update_memory_document, update_memory_settings
 from services.account.memory_consolidation import (
     CONSOLIDATION_SYSTEM_PROMPT,
     MemoryDocumentChangedError,
@@ -169,6 +169,19 @@ class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
             session.commit()
 
         model = SimpleNamespace(ainvoke=AsyncMock())
+        with patch(
+            "services.account.memory_consolidation._get_consolidation_model",
+            return_value=model,
+        ):
+            result = await consolidate_conversation(self.conversation_id)
+
+        self.assertTrue(result.skipped)
+        model.ainvoke.assert_not_awaited()
+
+    async def test_consolidation_respects_disabled_auto_extract(self) -> None:
+        update_memory_settings(self.user_id, auto_extract=False)
+        model = SimpleNamespace(ainvoke=AsyncMock())
+
         with patch(
             "services.account.memory_consolidation._get_consolidation_model",
             return_value=model,

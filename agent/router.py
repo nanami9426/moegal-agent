@@ -62,7 +62,7 @@ def start_new_conversation_context(
     )
     ended_conversation_id = getattr(result, "ended_conversation_id", None)
     if ended_conversation_id is not None:
-        _schedule_memory_consolidation(
+        schedule_memory_consolidation(
             ended_conversation_id,
             force=True,
         )
@@ -209,7 +209,7 @@ async def route_message(
             "thread_id": conversation.thread_id,
         },
     )
-    _schedule_memory_consolidation(conversation.id)
+    schedule_memory_consolidation(conversation.id)
     return reply_text
 
 
@@ -342,7 +342,7 @@ async def route_message_stream(
             "thread_id": conversation.thread_id,
         },
     )
-    _schedule_memory_consolidation(conversation.id)
+    schedule_memory_consolidation(conversation.id)
 
 
 async def route_image_message(
@@ -423,26 +423,6 @@ async def classify_image_translation_intent(text: str, *, user_id: int) -> Image
         return label
 
     return "unknown"
-
-
-def _schedule_memory_consolidation(
-    conversation_id: int,
-    *,
-    force: bool = False,
-) -> None:
-    try:
-        schedule_memory_consolidation(
-            conversation_id,
-            force=force,
-        )
-    except Exception:
-        # 记忆后台任务失败不应阻断主回复，任务会在后续消息再次触发。
-        from utils.logger import logger
-
-        logger.exception(
-            "Could not schedule memory consolidation: conversation_id=%s",
-            conversation_id,
-        )
 
 
 def _temporary_thread_id(user_id: int, value: str | None) -> str:

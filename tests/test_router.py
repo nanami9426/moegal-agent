@@ -26,7 +26,7 @@ class _FakeAsyncPool:
 class RouterContextTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         # 路由单测不启动真实后台任务；巩固流水线由独立测试覆盖。
-        self.schedule_patcher = patch.object(router, "_schedule_memory_consolidation")
+        self.schedule_patcher = patch.object(router, "schedule_memory_consolidation")
         self.schedule_mock = self.schedule_patcher.start()
 
     def tearDown(self) -> None:

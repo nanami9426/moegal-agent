@@ -82,14 +82,36 @@ class MemoryDocumentChangedError(RuntimeError):
     """模型运行期间用户编辑了文档，当前结果不能覆盖新版本。"""
 
 
+def _get_message_threshold() -> int:
+    raw_value = os.getenv(
+        "MOEGAL_MEMORY_CONSOLIDATION_MESSAGES",
+        str(DEFAULT_CONSOLIDATION_MESSAGE_THRESHOLD),
+    )
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return DEFAULT_CONSOLIDATION_MESSAGE_THRESHOLD
+    return max(4, min(value, 100))
+
+
 async def consolidate_conversation(
     conversation_id: int,
     *,
     force: bool = False,
 ) -> ConsolidationResult:
+    """检查用户设置和消息数量，满足条件时直接完成一次记忆整理。"""
     batch = _load_consolidation_batch(conversation_id)
     if batch is None:
         return ConsolidationResult(conversation_id, 0, False, skipped=True)
+
+    settings = get_memory_settings(batch.conversation.user_id)
+    if not settings.enabled or not settings.auto_extract:
+        return ConsolidationResult(
+            conversation_id,
+            len(batch.messages),
+            False,
+            skipped=True,
+        )
 
     threshold = 2 if force else _get_message_threshold()
     if len(batch.messages) < threshold:
@@ -145,18 +167,34 @@ def schedule_memory_consolidation(
     *,
     force: bool = False,
 ) -> bool:
-    """在可用事件循环中后台整理；同步入口使用短生命周期线程。"""
+    """后台调用 consolidate_conversation；同一会话同时只运行一个任务。"""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
+        # Web 同步接口运行在线程池中，这里再开短生命周期线程执行异步模型调用。
+        def run_in_thread() -> None:
+            try:
+                asyncio.run(consolidate_conversation(conversation_id, force=force))
+            except Exception:
+                logger.exception(
+                    "Memory consolidation failed: conversation_id=%s",
+                    conversation_id,
+                )
+
         thread = threading.Thread(
-            target=lambda: asyncio.run(
-                _run_consolidation(conversation_id, force=force, task_key=None)
-            ),
+            target=run_in_thread,
             name=f"memory-consolidation-{conversation_id}",
             daemon=True,
         )
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            # 调度失败不能影响已经生成的聊天回复，后续消息还会再次触发。
+            logger.exception(
+                "Could not schedule memory consolidation: conversation_id=%s",
+                conversation_id,
+            )
+            return False
         return True
 
     task_key = (id(loop), conversation_id)
@@ -166,17 +204,20 @@ def schedule_memory_consolidation(
             if force:
                 _pending_force.add(task_key)
             return False
-        task = loop.create_task(
-            _run_consolidation(
+        try:
+            task = loop.create_task(
+                consolidate_conversation(conversation_id, force=force),
+                name=f"memory-consolidation-{conversation_id}",
+            )
+        except Exception:
+            logger.exception(
+                "Could not schedule memory consolidation: conversation_id=%s",
                 conversation_id,
-                force=force,
-                task_key=task_key,
-            ),
-            name=f"memory-consolidation-{conversation_id}",
-        )
+            )
+            return False
         _tasks[task_key] = task
         task.add_done_callback(
-            lambda completed, key=task_key: _remove_task(key, completed)
+            lambda completed, key=task_key: _finish_consolidation_task(key, completed)
         )
     return True
 
@@ -328,54 +369,29 @@ def _sanitize_generated_markdown(markdown: str) -> str:
     return sanitized or "# 用户记忆"
 
 
-def _get_message_threshold() -> int:
-    raw_value = os.getenv(
-        "MOEGAL_MEMORY_CONSOLIDATION_MESSAGES",
-        str(DEFAULT_CONSOLIDATION_MESSAGE_THRESHOLD),
-    )
-    try:
-        value = int(raw_value)
-    except ValueError:
-        return DEFAULT_CONSOLIDATION_MESSAGE_THRESHOLD
-    return max(4, min(value, 100))
-
-
-async def _run_consolidation(
-    conversation_id: int,
-    *,
-    force: bool,
-    task_key: tuple[int, int] | None,
+def _finish_consolidation_task(
+    task_key: tuple[int, int],
+    completed: asyncio.Task[ConsolidationResult],
 ) -> None:
-    current_force = force
-    while True:
-        try:
-            batch = _load_consolidation_batch(conversation_id)
-            if batch is None:
-                return
-            settings = get_memory_settings(batch.conversation.user_id)
-            if not settings.enabled or not settings.auto_extract:
-                return
-            await consolidate_conversation(conversation_id, force=current_force)
-        except Exception:
-            logger.exception("Memory consolidation failed: conversation_id=%s", conversation_id)
-            return
+    """回收任务；运行期间收到强制整理请求时，再补一次收尾。"""
+    error = None if completed.cancelled() else completed.exception()
+    if error is not None:
+        logger.error(
+            "Memory consolidation failed: conversation_id=%s",
+            task_key[1],
+            exc_info=(type(error), error, error.__traceback__),
+        )
 
-        if task_key is None:
-            return
-        with _tasks_lock:
-            if task_key not in _pending_force:
-                return
-            _pending_force.remove(task_key)
-        current_force = True
-
-
-def _remove_task(task_key: tuple[int, int], completed: asyncio.Task[None]) -> None:
     with _tasks_lock:
         if _tasks.get(task_key) is completed:
             _tasks.pop(task_key, None)
+        force_again = task_key in _pending_force
         _pending_force.discard(task_key)
 
+    if force_again:
+        schedule_memory_consolidation(task_key[1], force=True)
 
-_tasks: dict[tuple[int, int], asyncio.Task[None]] = {}
+
+_tasks: dict[tuple[int, int], asyncio.Task[ConsolidationResult]] = {}
 _pending_force: set[tuple[int, int]] = set()
 _tasks_lock = threading.Lock()
