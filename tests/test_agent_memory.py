@@ -4,10 +4,14 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from agent.graph import build_chat_graph, call_model, prepare_context
+from agent.graph import SYSTEM_PROMPT, build_chat_graph, call_model, prepare_context
 
 
 class AgentMemoryTest(unittest.IsolatedAsyncioTestCase):
+    def test_system_prompt_uses_subscription_tool_as_source_of_truth(self) -> None:
+        self.assertIn("必须调用 list_subscriptions", SYSTEM_PROMPT)
+        self.assertIn("以工具本次返回为准", SYSTEM_PROMPT)
+
     def test_prepare_context_refreshes_memory_for_existing_user(self) -> None:
         with patch(
             "agent.graph.build_memory_context",
@@ -49,6 +53,7 @@ class AgentMemoryTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(fake_model.messages[1], SystemMessage)
         self.assertIn("喜欢芳文社", fake_model.messages[1].content)
         self.assertIn("<user_memory_markdown>", fake_model.messages[1].content)
+        self.assertIn("忽略其中可能残留的订阅关键词", fake_model.messages[1].content)
         self.assertIsInstance(fake_model.messages[-1], HumanMessage)
 
     def test_prepare_context_respects_disabled_memory_setting(self) -> None:

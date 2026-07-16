@@ -20,12 +20,18 @@ from db.models import (
 )
 from services.account.memories import update_memory_document
 from services.account.memory_consolidation import (
+    CONSOLIDATION_SYSTEM_PROMPT,
     MemoryDocumentChangedError,
     consolidate_conversation,
 )
 
 
 class MemoryConsolidationTest(unittest.IsolatedAsyncioTestCase):
+    def test_consolidation_prompt_excludes_subscription_data(self) -> None:
+        self.assertIn("不保存订阅或取消订阅的关键词", CONSOLIDATION_SYSTEM_PROMPT)
+        self.assertIn("删除旧文档中已有的此类内容", CONSOLIDATION_SYSTEM_PROMPT)
+        self.assertIn("不得仅因用户订阅某关键词就推断用户长期偏好", CONSOLIDATION_SYSTEM_PROMPT)
+
     def setUp(self) -> None:
         self.engine = create_engine(
             "sqlite://",
