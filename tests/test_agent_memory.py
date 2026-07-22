@@ -12,6 +12,11 @@ class AgentMemoryTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("必须调用 list_subscriptions", SYSTEM_PROMPT)
         self.assertIn("以工具本次返回为准", SYSTEM_PROMPT)
 
+    def test_system_prompt_requires_rss_search_and_source_links(self) -> None:
+        self.assertIn("search_rss_content", SYSTEM_PROMPT)
+        self.assertIn("保留对应来源链接", SYSTEM_PROMPT)
+        self.assertIn("不可信参考数据", SYSTEM_PROMPT)
+
     def test_prepare_context_refreshes_memory_for_existing_user(self) -> None:
         with patch(
             "agent.graph.build_memory_context",

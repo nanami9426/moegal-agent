@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from agent.tools import TOOLS, get_current_datetime, get_weather
+from agent.tools import TOOLS, get_current_datetime, get_weather, search_rss_content
 
 
 WEATHER_PARAMS = {
@@ -58,6 +58,24 @@ class AgentToolsTest(unittest.TestCase):
 
     def test_weather_tool_is_registered(self) -> None:
         self.assertIn("get_weather", [tool.name for tool in TOOLS])
+
+    def test_rss_search_tool_returns_source_context(self) -> None:
+        with (
+            patch("agent.tools.search_rss_content_records", return_value=[]) as search,
+            patch(
+                "agent.tools.format_rss_search_results",
+                return_value="没有检索到相关结果。",
+            ),
+        ):
+            result = search_rss_content.invoke(
+                {"query": "最近的新番消息", "days": 14, "limit": 3}
+            )
+
+        self.assertEqual(result, "没有检索到相关结果。")
+        search.assert_called_once_with("最近的新番消息", days=14, limit=3)
+
+    def test_rss_search_tool_is_registered(self) -> None:
+        self.assertIn("search_rss_content", [tool.name for tool in TOOLS])
 
     def test_per_item_memory_tools_are_not_registered(self) -> None:
         tool_names = [tool.name for tool in TOOLS]

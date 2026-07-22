@@ -19,6 +19,7 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "paramiko>=3.5",
     "pillow>=12.2.0",
+    "pgvector>=0.4.2,<0.5",
     "psycopg[binary]>=3.3.4",
     "python-telegram-bot>=22.7",
     "qq-botpy>=1.2.1",

@@ -9,6 +9,7 @@ Moegal Agent 是一个面向二次元内容订阅场景的 Telegram/QQ 助手。
 - 支持普通图片理解、漫画图片翻译询问，以及 `/translate` 后直接翻译下一张图片。
 - 后台定时刷新 `config/rss_feeds.txt` 中配置的 RSSHub 路由。
 - 将 RSS 条目缓存到 PostgreSQL，并按用户订阅生成摘要。
+- 使用 pgvector 对 RSS 内容做增量向量化，支持关键词与语义混合检索及来源引用。
 - 启动时自动拉起本地 RSSHub 和 Redis Docker 容器。
 
 ## 环境要求
@@ -20,6 +21,7 @@ Moegal Agent 是一个面向二次元内容订阅场景的 Telegram/QQ 助手。
 ## 文档
 
 - [记忆系统实现说明](doc/memory-system.md)
+- [RSS RAG 实现说明](doc/rss-rag.md)
 
 ## 配置
 
@@ -37,6 +39,9 @@ MOEGAL_RSSHUB_BASE_URL=http://127.0.0.1:1200
 MOEGAL_RSSHUB_ACCESS_KEY=moegal_rsshub
 MOEGAL_RSS_REFRESH_INTERVAL_SECONDS=28800
 MOEGAL_RSS_FETCH_CONCURRENCY=8
+MOEGAL_EMBEDDING_MODEL=
+MOEGAL_EMBEDDING_API_KEY=
+MOEGAL_EMBEDDING_BASE_URL=
 
 QQ_BOT_APPID=
 QQ_BOT_SK=
@@ -50,6 +55,11 @@ QQ_BOT_SK=
 - `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
 - `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
 - `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
+- `MOEGAL_EMBEDDING_MODEL`：OpenAI-compatible Embedding 模型名；配置后 RSS 刷新会增量生成向量索引。
+- `MOEGAL_EMBEDDING_API_KEY`：Embedding 服务密钥；未配置时复用 `OPENAI_API_KEY`。
+- `MOEGAL_EMBEDDING_BASE_URL`：Embedding 服务地址；未配置时复用本地 LLM gateway 或 `OPENAI_BASE_URL`。
+- `MOEGAL_EMBEDDING_BATCH_SIZE`：Embedding 批量大小，默认 32，范围 1 到 256。
+- `MOEGAL_RAG_MIN_SIMILARITY`：RSS 语义召回最低余弦相似度，默认 0.25。
 - `MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM`：每个 Web 用户同平台最多可绑定的 Bot 账号数，默认 `2`。
 - `MOEGAL_CONTEXT_MAX_TOKENS`：模型热路径保留的最近会话 token 预算，默认 `12000`。
 - `MOEGAL_TIMEZONE`：日期时间工具使用的 IANA 时区，默认 `Asia/Shanghai`。
@@ -226,6 +236,7 @@ ssh -i .secrets/moegal_qq_image_upload deploy@example.com \
 - `/translate`：提示发送图片，并直接翻译下一张图片。
 
 普通文本会进入 Agent 对话；如果内容表达了订阅、取消订阅、查看订阅或生成摘要等意图，Agent 会调用对应工具完成操作。
+用户询问近期资讯、RSS 内容或某个话题的最新动态时，Agent 会调用 RSS 混合检索工具，并在回答中保留检索结果的来源链接。
 普通图片会进入多模态理解；漫画图片会先询问是否翻译，用户表达要翻译后发送翻译图，表达不用翻译则按普通图片回答。
 如果先发送 `/translate`，下一张图片会直接翻译；如果发送图片时说明要翻译，也会直接翻译当前图片。
 

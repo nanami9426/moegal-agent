@@ -3,10 +3,26 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import JSON, BigInteger, Column, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy.types import TypeDecorator
 from sqlmodel import Field, SQLModel
 
 
 TIMESTAMP_TZ = DateTime(timezone=True)
+
+
+class PortableVector(TypeDecorator):
+    """PostgreSQL 使用 pgvector，SQLite 测试环境使用 JSON。"""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            # 不固定维度，允许通过配置切换不同 embedding 模型。
+            from pgvector.sqlalchemy import VECTOR
+
+            return dialect.type_descriptor(VECTOR())
+        return dialect.type_descriptor(JSON())
 
 
 def utc_now() -> datetime:
@@ -186,6 +202,37 @@ class ContentItem(SQLModel, table=True):
         sa_column=Column(JSON, nullable=False),
     )
     hash: str | None = Field(default=None, index=True, max_length=128)
+
+
+class ContentChunk(SQLModel, table=True):
+    """RSS 内容的检索分块及其向量。"""
+
+    __tablename__ = "content_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "content_item_id",
+            "chunk_index",
+            name="uq_content_chunks_item_index",
+        ),
+        Index(
+            "ix_content_chunks_model_dimensions",
+            "embedding_model",
+            "embedding_dimensions",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    content_item_id: int = Field(foreign_key="content_items.id", index=True)
+    chunk_index: int = Field(nullable=False)
+    text: str = Field(nullable=False)
+    content_hash: str = Field(index=True, max_length=128)
+    embedding_model: str = Field(index=True, max_length=128)
+    embedding_dimensions: int = Field(index=True, nullable=False)
+    embedding: list[float] = Field(
+        sa_column=Column(PortableVector(), nullable=False),
+    )
+    created_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, sa_type=TIMESTAMP_TZ, nullable=False)
 
 
 class Delivery(SQLModel, table=True):

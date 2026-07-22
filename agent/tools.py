@@ -14,6 +14,10 @@ from services.account.subscriptions import (
 )
 from services.account.subscriptions import list_subscriptions as list_subscription_records
 from services.rss_pipeline.digest import build_daily_digest as build_daily_digest_text
+from services.rss_pipeline.retrieval import (
+    format_rss_search_results,
+    search_rss_content as search_rss_content_records,
+)
 
 
 @tool
@@ -97,6 +101,17 @@ def build_daily_digest(
 
 
 @tool
+def search_rss_content(
+    query: str,
+    days: int = 30,
+    limit: int = 5,
+) -> str:
+    """Search cached RSS news by meaning and keywords. Use for recent news, updates, or questions about RSS content; preserve source links in the answer."""
+    results = search_rss_content_records(query, days=days, limit=limit)
+    return format_rss_search_results(results)
+
+
+@tool
 def get_weather(location: str = "Shenzhen") -> str:
     """Get the current weather for a city or region. Use this when the user asks about weather."""
     normalized_location = " ".join(location.strip().split())
@@ -134,5 +149,6 @@ TOOLS = [
     delete_subscription,
     list_subscriptions,
     build_daily_digest,
+    search_rss_content,
     get_weather,
 ]

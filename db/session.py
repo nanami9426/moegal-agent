@@ -1,8 +1,9 @@
 import os
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, SQLModel
 
 # 导入模型模块，确保 SQLModel.metadata 能收集到所有表。
@@ -60,7 +61,26 @@ def get_engine() -> Engine:
 
 def init_db() -> None:
     engine = get_engine()
-    SQLModel.metadata.create_all(engine)
+    embedding_enabled = bool(os.getenv("MOEGAL_EMBEDDING_MODEL", "").strip())
+    if embedding_enabled:
+        # 只有启用语义检索时才要求数据库安装 pgvector，避免影响原有功能启动。
+        try:
+            with engine.begin() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except SQLAlchemyError as exc:
+            raise RuntimeError(
+                "已配置 MOEGAL_EMBEDDING_MODEL，但 PostgreSQL 无法启用 vector 扩展。"
+                "请让数据库管理员安装 pgvector 并授予扩展创建权限。"
+            ) from exc
+        SQLModel.metadata.create_all(engine)
+        return
+
+    tables = [
+        table
+        for table in SQLModel.metadata.sorted_tables
+        if table.name != "content_chunks"
+    ]
+    SQLModel.metadata.create_all(engine, tables=tables)
 
 
 def get_session() -> Generator[Session, None, None]:

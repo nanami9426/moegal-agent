@@ -79,6 +79,32 @@ class RssCacheRefresherTest(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertEqual(len(session.exec(select(ContentItem)).all()), 0)
 
+    def test_refresh_keeps_cached_content_when_embedding_fails(self) -> None:
+        entry = _rss_entry(title="蓝色档案 新活动", entry_id="entry-index-error")
+        fetch_result = RssFetchResult(entries=[entry], errors=[])
+
+        with (
+            patch(
+                "services.rss_pipeline.refresher.get_configured_feed_urls",
+                return_value=["https://example.com/feed.xml"],
+            ),
+            patch(
+                "services.rss_pipeline.refresher.fetch_rss_entries",
+                return_value=fetch_result,
+            ),
+            patch(
+                "services.rss_pipeline.refresher.index_content_items",
+                side_effect=RuntimeError("embedding unavailable"),
+            ),
+            patch("services.rss_pipeline.refresher.logger.exception"),
+        ):
+            result = refresh_rss_cache_once()
+
+        self.assertEqual(result.created_count, 1)
+        self.assertEqual(result.index_error_count, 1)
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(ContentItem)).all()), 1)
+
     def test_refresh_interval_defaults_and_validation(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(

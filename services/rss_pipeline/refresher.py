@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config.paths import RSS_LAST_REFRESH_AT_PATH
-from utils.logger import logger
+from services.rss_pipeline.content_index import index_content_items
 from services.rss_pipeline.content_store import upsert_rss_entries
 from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_urls
+from utils.logger import logger
 
 
 DEFAULT_RSS_REFRESH_INTERVAL_SECONDS = 60 * 60 * 8
@@ -22,6 +23,9 @@ class RssCacheRefreshResult:
     error_count: int
     created_count: int = 0
     updated_count: int = 0
+    indexed_count: int = 0
+    indexed_chunk_count: int = 0
+    index_error_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -77,12 +81,23 @@ def refresh_rss_cache_once() -> RssCacheRefreshResult:
     fetch_result = fetch_rss_entries(feed_urls)
     created_count = 0
     updated_count = 0
+    indexed_count = 0
+    indexed_chunk_count = 0
+    index_error_count = 0
 
     if fetch_result.entries:
         # 如果抓到了 RSS 条目，就把它们写入存储
         upsert_result = upsert_rss_entries(fetch_result.entries)
         created_count = upsert_result.created_count
         updated_count = upsert_result.updated_count
+        try:
+            index_result = index_content_items(upsert_result.items)
+            indexed_count = index_result.indexed_items
+            indexed_chunk_count = index_result.indexed_chunks
+        except Exception:
+            # 内容缓存比向量索引更基础；Embedding 暂时失败不能中断 RSS 刷新。
+            index_error_count = 1
+            logger.exception("RSS content embedding index failed.")
 
     result = RssCacheRefreshResult(
         feed_count=len(feed_urls),
@@ -90,14 +105,21 @@ def refresh_rss_cache_once() -> RssCacheRefreshResult:
         error_count=len(fetch_result.errors),
         created_count=created_count,
         updated_count=updated_count,
+        indexed_count=indexed_count,
+        indexed_chunk_count=indexed_chunk_count,
+        index_error_count=index_error_count,
     )
     logger.info(
-        "RSS cache refreshed: feeds=%s entries=%s errors=%s created=%s updated=%s",
+        "RSS cache refreshed: feeds=%s entries=%s errors=%s created=%s updated=%s "
+        "indexed=%s chunks=%s index_errors=%s",
         result.feed_count,
         result.entry_count,
         result.error_count,
         result.created_count,
         result.updated_count,
+        result.indexed_count,
+        result.indexed_chunk_count,
+        result.index_error_count,
     )
     return result
 
