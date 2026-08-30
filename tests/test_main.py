@@ -27,8 +27,7 @@ class MainArgsTest(unittest.TestCase):
         with (
             patch("main.logger.info"),
             patch("main.init_settings"),
-            patch("main.start_rsshub_stack", return_value="rsshub-runtime"),
-            patch("main.stop_rsshub_stack") as stop_rsshub_stack,
+            patch("main.load_content_sources") as load_content_sources,
             patch("main.init_db"),
             patch("main.init_ocr_models"),
             patch("main.start_rss_cache_refresher", return_value=refresher),
@@ -42,7 +41,7 @@ class MainArgsTest(unittest.TestCase):
         thread.assert_not_called()
         run_qq_client.assert_called_once_with()
         refresher.stop.assert_called_once_with()
-        stop_rsshub_stack.assert_called_once_with("rsshub-runtime")
+        load_content_sources.assert_called_once_with()
 
     def test_main_starts_qq_thread_and_tg_polling_when_both_are_enabled(self) -> None:
         application = SimpleNamespace(run_polling=Mock())
@@ -50,8 +49,7 @@ class MainArgsTest(unittest.TestCase):
         with (
             patch("main.logger.info"),
             patch("main.init_settings"),
-            patch("main.start_rsshub_stack", return_value="rsshub-runtime"),
-            patch("main.stop_rsshub_stack"),
+            patch("main.load_content_sources"),
             patch("main.init_db"),
             patch("main.init_ocr_models"),
             patch("main.start_rss_cache_refresher", return_value=refresher),
@@ -71,6 +69,21 @@ class MainArgsTest(unittest.TestCase):
         run_qq_client.assert_not_called()
         application.run_polling.assert_called_once_with()
         refresher.stop.assert_called_once_with()
+
+    def test_main_validates_content_sources_before_starting_services(self) -> None:
+        with (
+            patch("main.logger.info"),
+            patch("main.init_settings"),
+            patch(
+                "main.load_content_sources",
+                side_effect=ValueError("invalid source config"),
+            ),
+            patch("main.init_db") as init_db,
+            self.assertRaisesRegex(ValueError, "invalid source config"),
+        ):
+            main(bot=["qq"])
+
+        init_db.assert_not_called()
 
 
 if __name__ == "__main__":

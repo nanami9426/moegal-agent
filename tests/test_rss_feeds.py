@@ -1,71 +1,75 @@
-import os
-import threading
 import unittest
-from unittest.mock import patch
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import Mock
 
-from services.rss_pipeline.feeds import fetch_rss_entries
+from services.rss_pipeline.feeds import collect
 
 
 class RssFeedsTest(unittest.TestCase):
-    def test_fetch_rss_entries_fetches_sources_concurrently(self) -> None:
-        first_started = threading.Event()
-        second_started = threading.Event()
+    def test_collect_parses_rss_and_namespaces_guid(self) -> None:
+        source = _source("source-one", "https://example.com/feed.xml")
+        client = _client(
+            b"""
+            <rss version="2.0"><channel><title>Example Feed</title>
+              <item><guid>42</guid><title>Example</title>
+                <link>https://example.com/items/42</link>
+                <description><![CDATA[<p>Hello&nbsp;world</p>]]></description>
+                <pubDate>Sun, 30 Aug 2026 08:00:00 GMT</pubDate>
+              </item>
+            </channel></rss>
+            """
+        )
 
-        def fake_get(url: str, **kwargs: object) -> _FakeResponse:
-            self.assertTrue(kwargs["follow_redirects"])
-            self.assertEqual(kwargs["timeout"], 15.0)
+        entries = collect(source, client)
 
-            if url == "https://example.com/one.xml":
-                first_started.set()
-                self.assertTrue(
-                    second_started.wait(timeout=1.0),
-                    "second feed request did not start while first was still running",
-                )
-            else:
-                self.assertTrue(first_started.wait(timeout=1.0))
-                second_started.set()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].entry_id, "feed:source-one:42")
+        self.assertEqual(entries[0].summary, "Hello world")
+        self.assertEqual(
+            entries[0].published_at,
+            datetime(2026, 8, 30, 8, tzinfo=timezone.utc),
+        )
+        self.assertEqual(entries[0].raw["source_key"], "source-one")
+        client.get.assert_called_once_with("https://example.com/feed.xml")
 
-            return _FakeResponse(_rss_bytes(url))
+    def test_collect_parses_atom(self) -> None:
+        source = _source("atom-source", "https://example.com/atom.xml")
+        client = _client(
+            b"""
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Atom Feed</title>
+              <entry><id>tag:example.com,2026:1</id><title>Atom Item</title>
+                <link href="https://example.com/atom/1"/>
+                <updated>2026-08-30T09:30:00Z</updated>
+              </entry>
+            </feed>
+            """
+        )
 
-        with (
-            patch.dict(os.environ, {"MOEGAL_RSS_FETCH_CONCURRENCY": "2"}),
-            patch("services.rss_pipeline.feeds.httpx.get", side_effect=fake_get),
-        ):
-            result = fetch_rss_entries(
-                [
-                    "https://example.com/one.xml",
-                    "https://example.com/two.xml",
-                ]
-            )
+        entries = collect(source, client)
 
-        self.assertEqual(result.errors, [])
-        self.assertEqual([entry.entry_id for entry in result.entries], ["one", "two"])
+        self.assertEqual(entries[0].entry_id, "feed:atom-source:tag:example.com,2026:1")
+        self.assertEqual(entries[0].link, "https://example.com/atom/1")
+
+    def test_collect_rejects_unparseable_feed(self) -> None:
+        source = _source("broken", "https://example.com/broken.xml")
+
+        with self.assertRaisesRegex(ValueError, "无法解析"):
+            collect(source, _client(b"not xml"))
 
 
-class _FakeResponse:
-    def __init__(self, content: bytes) -> None:
-        self.content = content
-
-    def raise_for_status(self) -> None:
-        return None
+def _source(source_id: str, url: str) -> SimpleNamespace:
+    return SimpleNamespace(id=source_id, kind="feed", options={"url": url})
 
 
-def _rss_bytes(url: str) -> bytes:
-    entry_id = "one" if url.endswith("one.xml") else "two"
-    return f"""
-        <?xml version="1.0" encoding="UTF-8"?>
-        <rss version="2.0">
-            <channel>
-                <title>Example Feed</title>
-                <item>
-                    <guid>{entry_id}</guid>
-                    <title>{entry_id}</title>
-                    <link>https://example.com/{entry_id}</link>
-                    <description>summary</description>
-                </item>
-            </channel>
-        </rss>
-    """.encode()
+def _client(content: bytes) -> Mock:
+    response = Mock()
+    response.content = content
+    response.raise_for_status.return_value = None
+    client = Mock()
+    client.get.return_value = response
+    return client
 
 
 if __name__ == "__main__":

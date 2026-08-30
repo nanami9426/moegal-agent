@@ -4,10 +4,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from config.paths import RSS_LAST_REFRESH_AT_PATH
+from config.paths import CONTENT_SOURCES_LAST_REFRESH_AT_PATH
 from utils.logger import logger
 from services.rss_pipeline.content_store import upsert_rss_entries
-from services.rss_pipeline.feeds import fetch_rss_entries, get_configured_feed_urls
+from services.rss_pipeline.sources import collect_content_sources, load_content_sources
 
 
 DEFAULT_RSS_REFRESH_INTERVAL_SECONDS = 60 * 60 * 8
@@ -17,7 +17,8 @@ RSS_REFRESH_INTERVAL_ENV = "MOEGAL_RSS_REFRESH_INTERVAL_SECONDS"
 
 @dataclass(frozen=True)
 class RssCacheRefreshResult:
-    feed_count: int
+    source_count: int
+    successful_source_count: int
     entry_count: int
     error_count: int
     created_count: int = 0
@@ -35,9 +36,12 @@ class RssCacheRefresher:
         self.thread.join(timeout=timeout)
         if self.thread.is_alive():
             if timeout is None:
-                logger.warning("RSS cache refresher did not stop.")
+                logger.warning("Content source refresher did not stop.")
             else:
-                logger.warning("RSS cache refresher did not stop within %.1f seconds.", timeout)
+                logger.warning(
+                    "Content source refresher did not stop within %.1f seconds.",
+                    timeout,
+                )
 
 
 def get_rss_refresh_interval_seconds() -> int:
@@ -69,31 +73,46 @@ def get_rss_refresh_interval_seconds() -> int:
 
 
 def refresh_rss_cache_once() -> RssCacheRefreshResult:
-    feed_urls = get_configured_feed_urls()
-    if not feed_urls:
-        logger.info("RSS cache refresh skipped: no configured feed URLs.")
-        return RssCacheRefreshResult(feed_count=0, entry_count=0, error_count=0)
+    sources = load_content_sources()
+    if not sources:
+        logger.info("内容源缓存刷新已跳过：没有启用的内容源。")
+        return RssCacheRefreshResult(
+            source_count=0,
+            successful_source_count=0,
+            entry_count=0,
+            error_count=0,
+        )
 
-    fetch_result = fetch_rss_entries(feed_urls)
+    fetch_result = collect_content_sources(sources)
     created_count = 0
     updated_count = 0
 
+    for error in fetch_result.errors:
+        logger.warning(
+            "内容源采集失败：id=%s kind=%s error=%s",
+            error.source_id,
+            error.source_kind,
+            error.message,
+        )
+
     if fetch_result.entries:
-        # 如果抓到了 RSS 条目，就把它们写入存储
+        # 只在拿到条目时访问数据库；合法空列表仍计为一次成功采集。
         upsert_result = upsert_rss_entries(fetch_result.entries)
         created_count = upsert_result.created_count
         updated_count = upsert_result.updated_count
 
     result = RssCacheRefreshResult(
-        feed_count=len(feed_urls),
+        source_count=fetch_result.source_count,
+        successful_source_count=fetch_result.successful_source_count,
         entry_count=len(fetch_result.entries),
         error_count=len(fetch_result.errors),
         created_count=created_count,
         updated_count=updated_count,
     )
     logger.info(
-        "RSS cache refreshed: feeds=%s entries=%s errors=%s created=%s updated=%s",
-        result.feed_count,
+        "内容源缓存刷新完成：sources=%s successful=%s entries=%s errors=%s created=%s updated=%s",
+        result.source_count,
+        result.successful_source_count,
         result.entry_count,
         result.error_count,
         result.created_count,
@@ -113,13 +132,13 @@ def start_rss_cache_refresher(
     stop_event = threading.Event()
     thread = threading.Thread(
         target=_run_refresh_loop,
-        args=(stop_event, resolved_interval, RSS_LAST_REFRESH_AT_PATH),
-        name="rss-cache-refresher",
+        args=(stop_event, resolved_interval, CONTENT_SOURCES_LAST_REFRESH_AT_PATH),
+        name="content-source-refresher",
         daemon=True,
     )
     thread.start()
     logger.info(
-        "RSS cache refresher started with interval=%s seconds.",
+        "内容源缓存刷新线程已启动，interval=%s seconds。",
         resolved_interval,
     )
     return RssCacheRefresher(
@@ -129,7 +148,11 @@ def start_rss_cache_refresher(
     )
 
 
-def _run_refresh_loop(stop_event: threading.Event, interval_seconds: int, last_refresh_at_path: Path) -> None:
+def _run_refresh_loop(
+    stop_event: threading.Event,
+    interval_seconds: int,
+    last_refresh_at_path: Path,
+) -> None:
     while not stop_event.is_set():
         # 只要没收到信号就一直循环
         # 计算还有多久刷新
@@ -140,7 +163,7 @@ def _run_refresh_loop(stop_event: threading.Event, interval_seconds: int, last_r
         )
         if wait_seconds > 0:
             logger.info(
-                "RSS cache refresh skipped: waiting %.1f seconds until refresh interval elapses.",
+                "Content source refresh skipped: waiting %.1f seconds.",
                 wait_seconds,
             )
             if stop_event.wait(wait_seconds):
@@ -150,16 +173,16 @@ def _run_refresh_loop(stop_event: threading.Event, interval_seconds: int, last_r
         try:
             result = refresh_rss_cache_once()
         except Exception:
-            logger.exception("RSS cache refresh failed.")
+            logger.exception("Content source refresh failed.")
             if stop_event.wait(interval_seconds):
                 break
             continue
 
-        if result.feed_count > 0:
+        if result.successful_source_count > 0:
             refreshed_at = time.time()
             if _write_last_refresh_at(last_refresh_at_path, refreshed_at):
                 logger.info(
-                    "RSS cache refresh timestamp written to %s.",
+                    "内容源缓存刷新时间已写入 %s。",
                     last_refresh_at_path,
                 )
 
@@ -173,7 +196,7 @@ def _read_last_refresh_at(path: Path) -> float | None:
     except FileNotFoundError:
         return None
     except OSError:
-        logger.exception("Failed to read RSS cache refresh timestamp from %s.", path)
+        logger.exception("Failed to read content source refresh timestamp from %s.", path)
         return None
 
     if not raw_value:
@@ -183,7 +206,7 @@ def _read_last_refresh_at(path: Path) -> float | None:
         return float(raw_value)
     except ValueError:
         logger.warning(
-            "Invalid RSS cache refresh timestamp in %s: %r.",
+            "Invalid content source refresh timestamp in %s: %r.",
             path,
             raw_value,
         )
@@ -195,7 +218,7 @@ def _write_last_refresh_at(path: Path, refreshed_at: float) -> bool:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{refreshed_at:.6f}\n", encoding="utf-8")
     except OSError:
-        logger.exception("Failed to write RSS cache refresh timestamp to %s.", path)
+        logger.exception("Failed to write content source refresh timestamp to %s.", path)
         return False
 
     return True

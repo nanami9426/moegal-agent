@@ -2,13 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from db.models import ContentItem, Delivery, Subscription, utc_now
 from db.session import get_engine
-from services.rss_pipeline.feeds import get_configured_feed_urls
+from services.rss_pipeline.sources import load_content_sources
 
 
 DIGEST_LOOKBACK_HOURS = 48
@@ -23,10 +23,10 @@ class DigestResult:
 
 
 def prepare_daily_digest(user_id: int) -> DigestResult:
-    feed_urls = get_configured_feed_urls()
-    if not feed_urls:
+    active_source_keys = {source.id for source in load_content_sources()}
+    if not active_source_keys:
         return DigestResult(
-            text="还没有配置内容源。请先在 config/rss_feeds.txt 添加 RSSHub route。",
+            text="还没有配置内容源。请先在 config/content_sources.toml 添加内容源。",
             delivery_ids=(),
         )
 
@@ -37,12 +37,16 @@ def prepare_daily_digest(user_id: int) -> DigestResult:
             delivery_ids=(),
         )
 
-    if not _has_cached_rss_content():
+    if not _has_cached_content(active_source_keys):
         return DigestResult(text="内容缓存还在后台刷新，请稍后再试。", delivery_ids=())
 
     # 按订阅匹配内容，生成待投递记录
-    _create_pending_deliveries(user_id, subscriptions)
-    digest_items = _list_pending_digest_items(user_id, DIGEST_MAX_ITEMS)
+    _create_pending_deliveries(user_id, subscriptions, active_source_keys)
+    digest_items = _list_pending_digest_items(
+        user_id,
+        DIGEST_MAX_ITEMS,
+        active_source_keys,
+    )
 
     if not digest_items:
         return DigestResult(text="暂无新的订阅内容。", delivery_ids=())
@@ -91,21 +95,38 @@ def _list_active_keyword_subscriptions(user_id: int) -> list[Subscription]:
         )
 
 
-def _has_cached_rss_content() -> bool:
+def _has_cached_content(active_source_keys: set[str]) -> bool:
+    cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS)
     with Session(get_engine()) as session:
-        return (
-            session.exec(
-                select(ContentItem.id)
-                .where(ContentItem.source_type == "rss")
-                .limit(1)
-            ).first()
-            is not None
+        items = session.exec(
+            select(ContentItem).where(
+                ContentItem.source_type == "rss",
+                _fresh_content_condition(cutoff),
+            )
+        ).all()
+    return any(
+        _content_source_key(item) in active_source_keys
+        for item in items
+    )
+
+
+def _fresh_content_condition(cutoff: datetime):
+    return or_(
+        and_(
+            ContentItem.published_at.is_not(None),
+            ContentItem.published_at >= cutoff,
+        ),
+        and_(
+            ContentItem.published_at.is_(None),
+            ContentItem.fetched_at >= cutoff,
         )
+    )
 
 
 def _create_pending_deliveries(
     user_id: int,
     subscriptions: list[Subscription],
+    active_source_keys: set[str],
 ) -> int:
     cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS)
     created_count = 0
@@ -114,12 +135,14 @@ def _create_pending_deliveries(
         items = session.exec(
             select(ContentItem).where(
                 ContentItem.source_type == "rss",
-                or_(
-                    ContentItem.published_at.is_(None),
-                    ContentItem.published_at >= cutoff,
-                ),
+                _fresh_content_condition(cutoff),
             )
         ).all()
+        items = [
+            item
+            for item in items
+            if _content_source_key(item) in active_source_keys
+        ]
 
         content_item_ids = [
             item.id
@@ -178,7 +201,12 @@ class _DigestItem:
     created_at: datetime
 
 
-def _list_pending_digest_items(user_id: int, limit: int) -> list[_DigestItem]:
+def _list_pending_digest_items(
+    user_id: int,
+    limit: int,
+    active_source_keys: set[str],
+) -> list[_DigestItem]:
+    cutoff = utc_now() - timedelta(hours=DIGEST_LOOKBACK_HOURS)
     with Session(get_engine()) as session:
         rows = session.exec(
             select(Delivery, ContentItem)
@@ -189,6 +217,8 @@ def _list_pending_digest_items(user_id: int, limit: int) -> list[_DigestItem]:
                 Delivery.status == "pending",
                 Subscription.user_id == user_id,
                 Subscription.enabled == True,  # noqa: E712
+                ContentItem.source_type == "rss",
+                _fresh_content_condition(cutoff),
             )
         ).all()
 
@@ -204,9 +234,18 @@ def _list_pending_digest_items(user_id: int, limit: int) -> list[_DigestItem]:
         )
         for delivery, content in rows
         if delivery.id is not None
+        and _content_source_key(content) in active_source_keys
     ]
     items.sort(key=_digest_sort_key, reverse=True)
     return items[:limit]
+
+
+def _content_source_key(item: ContentItem) -> str | None:
+    raw = item.raw
+    if not isinstance(raw, dict):
+        return None
+    source_key = raw.get("source_key")
+    return source_key if isinstance(source_key, str) else None
 
 
 def _match_subscription(

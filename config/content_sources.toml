@@ -1,0 +1,103 @@
+# 内置内容源配置
+version = 1
+
+# Bangumi
+[[sources]]
+id = "bangumi-calendar-today"
+kind = "bangumi_calendar_today"
+
+[[sources]]
+id = "bangumi-anime-trending"
+kind = "bangumi_anime_trending"
+
+# Bilibili
+[[sources]]
+id = "bilibili-weekly"
+kind = "bilibili_weekly"
+
+[[sources]]
+id = "bilibili-anime-timeline"
+kind = "bilibili_anime_timeline"
+
+[[sources]]
+id = "bilibili-anime-news-rank"
+kind = "bilibili_category_rank"
+cate_id = 51
+days = 7
+page_size = 20
+
+[[sources]]
+id = "bilibili-anime-category-rank"
+kind = "bilibili_category_rank"
+cate_id = 33
+days = 7
+page_size = 30
+
+[[sources]]
+id = "bilibili-mall-figurine"
+kind = "bilibili_mall_new"
+category = 1
+
+[[sources]]
+id = "bilibili-mall-merchandise"
+kind = "bilibili_mall_new"
+category = 3
+
+[[sources]]
+id = "bilibili-hot-search"
+kind = "bilibili_hot_search"
+
+# 米游社：原神、崩坏：星穹铁道、绝区零的公告与活动
+[[sources]]
+id = "mihoyo-genshin-announcement"
+kind = "mihoyo_official"
+gids = 2
+news_type = 1
+page_size = 20
+
+[[sources]]
+id = "mihoyo-genshin-activity"
+kind = "mihoyo_official"
+gids = 2
+news_type = 2
+page_size = 20
+
+[[sources]]
+id = "mihoyo-star-rail-announcement"
+kind = "mihoyo_official"
+gids = 6
+news_type = 1
+page_size = 20
+
+[[sources]]
+id = "mihoyo-star-rail-activity"
+kind = "mihoyo_official"
+gids = 6
+news_type = 2
+page_size = 20
+
+[[sources]]
+id = "mihoyo-zenless-announcement"
+kind = "mihoyo_official"
+gids = 8
+news_type = 1
+page_size = 20
+
+[[sources]]
+id = "mihoyo-zenless-activity"
+kind = "mihoyo_official"
+gids = 8
+news_type = 2
+page_size = 20
+
+# 明日方舟官网新闻
+[[sources]]
+id = "arknights-news"
+kind = "arknights_news"
+
+# 原生 RSS/Atom 示例；替换 URL 并启用即可参与采集。
+[[sources]]
+id = "example-feed"
+kind = "feed"
+url = "https://example.com/feed.xml"
+enabled = false

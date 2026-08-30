@@ -9,7 +9,7 @@ from config.settings import init_settings
 from db.session import init_db
 from services.manga_translate.ocr import init_ocr_models
 from services.rss_pipeline.refresher import start_rss_cache_refresher
-from services.runtime.rsshub import start_rsshub_stack, stop_rsshub_stack
+from services.rss_pipeline.sources import load_content_sources
 
 
 DEFAULT_BOTS = ("qq", "tg")
@@ -59,7 +59,8 @@ def main(bot: Sequence[str] | None = None) -> None:
     logger.info("准备启动机器人: %s", ",".join(bots))
 
     init_settings()
-    rsshub_runtime = start_rsshub_stack()
+    # 启动后台线程前先校验内容源，避免配置错误在运行中才暴露。
+    load_content_sources()
     rss_refresher = None
     try:
         init_db()
@@ -84,7 +85,6 @@ def main(bot: Sequence[str] | None = None) -> None:
     finally:
         if rss_refresher is not None:
             rss_refresher.stop()
-        stop_rsshub_stack(rsshub_runtime)
 
 
 if __name__ == "__main__":

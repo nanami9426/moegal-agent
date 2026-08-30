@@ -1,21 +1,20 @@
 # Moegal Agent
 
-Moegal Agent 是一个面向二次元内容订阅场景的 Telegram/QQ 助手。当前版本以 RSS/RSSHub 为内容源，支持关键词订阅、取消订阅、查看订阅，以及通过 `/digest` 手动获取匹配内容摘要。
+Moegal Agent 是一个面向二次元内容订阅场景的 Telegram/QQ 助手。当前版本在项目进程内采集 Bangumi、Bilibili、米游社、明日方舟和原生 RSS/Atom，支持关键词订阅、取消订阅、查看订阅，以及通过 `/digest` 手动获取匹配内容摘要。
 
 ## 功能
 
 - Telegram Bot 轮询模式运行，QQ Bot 使用 botpy C2C 事件。
 - 通过自然语言或 `/subscribe` 管理关键词订阅。
 - 支持普通图片理解、漫画图片翻译询问，以及 `/translate` 后直接翻译下一张图片。
-- 后台定时刷新 `config/rss_feeds.txt` 中配置的 RSSHub 路由。
-- 将 RSS 条目缓存到 PostgreSQL，并按用户订阅生成摘要。
-- 启动时自动拉起本地 RSSHub 和 Redis Docker 容器。
+- 后台定时刷新 `config/content_sources.toml` 中启用的内容源。
+- 将归一化条目缓存到 PostgreSQL，并按用户订阅生成摘要。
+- 内容采集逻辑直接运行在项目进程内，不依赖 RSSHub、Redis 或 Docker。
 
 ## 环境要求
 
 - uv
 - PostgreSQL
-- Docker
 
 ## 文档
 
@@ -33,10 +32,9 @@ MOEGAL_MODEL=
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 MOEGAL_LLM_GATEWAY_BASE_URL=http://127.0.0.1:9426/v1
 
-MOEGAL_RSSHUB_BASE_URL=http://127.0.0.1:1200
-MOEGAL_RSSHUB_ACCESS_KEY=moegal_rsshub
 MOEGAL_RSS_REFRESH_INTERVAL_SECONDS=28800
 MOEGAL_RSS_FETCH_CONCURRENCY=8
+MOEGAL_CONTENT_USER_AGENT=Moegal-Agent/0.1
 
 QQ_BOT_APPID=
 QQ_BOT_SK=
@@ -46,10 +44,9 @@ QQ_BOT_SK=
 
 - `OPENAI_BASE_URL`：上游 OpenAI 兼容服务地址。启动 Go gateway 时，gateway 会用它转发请求。
 - `MOEGAL_LLM_GATEWAY_BASE_URL`：Python 侧连接本地 Go gateway 的地址；未配置时 Python 会直接使用 `OPENAI_BASE_URL`。
-- `MOEGAL_RSSHUB_BASE_URL`：RSSHub 访问地址，默认 `http://127.0.0.1:1200`。
-- `MOEGAL_RSSHUB_ACCESS_KEY`：RSSHub 访问密钥，默认 `moegal_rsshub`。
-- `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：RSS 缓存刷新间隔，默认 28800 秒，最小值 3600 秒。
-- `MOEGAL_RSS_FETCH_CONCURRENCY`：RSS 源并发抓取数量，默认 8，范围 1 到 32。
+- `MOEGAL_RSS_REFRESH_INTERVAL_SECONDS`：内容源缓存刷新间隔，默认 28800 秒，最小值 3600 秒。变量名为兼容已有部署而保留。
+- `MOEGAL_RSS_FETCH_CONCURRENCY`：内容源并发抓取数量，默认 8，范围 1 到 32。变量名为兼容已有部署而保留。
+- `MOEGAL_CONTENT_USER_AGENT`：内容采集公共客户端使用的 User-Agent，默认 `Moegal-Agent/0.1`；生产环境建议设置为可识别应用和维护者的值。少数会拦截非浏览器请求的页面使用浏览器兼容请求头。
 - `MOEGAL_MAX_LINKED_BOT_USERS_PER_PLATFORM`：每个 Web 用户同平台最多可绑定的 Bot 账号数，默认 `2`。
 - `MOEGAL_CONTEXT_MAX_TOKENS`：模型热路径保留的最近会话 token 预算，默认 `12000`。
 - `MOEGAL_TIMEZONE`：日期时间工具使用的 IANA 时区，默认 `Asia/Shanghai`。
@@ -64,14 +61,38 @@ QQ_BOT_SK=
 
 ## 内容源
 
-RSSHub 路由配置在 `config/rss_feeds.txt`，每行一个路由：
+内容源配置位于 `config/content_sources.toml`。`id` 必须唯一，`kind` 指定采集器，`enabled` 默认为 `true`：
 
-```text
-/bangumi.tv/calendar/today
-/openai/blog
+```toml
+version = 1
+
+[[sources]]
+id = "bangumi-calendar"
+kind = "bangumi_calendar_today"
+
+[[sources]]
+id = "mihoyo-genshin-announcement"
+kind = "mihoyo_official"
+gids = 2
+news_type = 1
+page_size = 20
+
+[[sources]]
+id = "my-feed"
+kind = "feed"
+url = "https://example.com/feed.xml"
+enabled = false
 ```
 
-相对路由会基于 `MOEGAL_RSSHUB_BASE_URL` 生成完整 URL，并自动附加 `MOEGAL_RSSHUB_ACCESS_KEY`。
+首版支持以下 `kind`：
+
+- `feed`：任意绝对 HTTP(S) RSS/Atom 地址。
+- `bangumi_calendar_today`、`bangumi_anime_trending`。
+- `bilibili_weekly`、`bilibili_anime_timeline`、`bilibili_category_rank`、`bilibili_mall_new`、`bilibili_hot_search`。
+- `mihoyo_official`：支持原神、崩坏：星穹铁道、绝区零的公告和活动列表。
+- `arknights_news`：明日方舟官网最新新闻。
+
+仓库内的默认配置启用了 16 个内容源，并提供一个禁用的原生 Feed 示例。配置存在重复 ID、未知字段、非法参数或非 HTTP(S) Feed 地址时，应用会在启动阶段直接报错。
 
 ## 启动
 
@@ -109,8 +130,6 @@ gateway 由 `.env` 中的 `MOEGAL_LLM_GATEWAY_BASE_URL` 决定。FastAPI 默认�
 uv run python main.py --bot qq
 uv run python main.py --bot qq,tg
 ```
-
-RSSHub 自动管理使用的本地 Docker 默认值，参考 `rsshub/docker-compose.yml`
 
 ## Web API
 
